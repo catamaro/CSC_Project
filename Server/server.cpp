@@ -3,6 +3,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>  
+#include <string.h>
 
 using namespace std;
 
@@ -12,13 +13,13 @@ int main(int argc, char* argv[]){
     struct sockaddr_storage client_addr;
     socklen_t client_addr_size = sizeof(client_addr);
 
-    const string response = "Hello World";
+    string message(50, ' ');
+    string reply(50, 'a');
     
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (server_fd == -1)
 	{
 		perror("socket: ");
-        cout << "just left 1\n";
 		exit(EXIT_FAILURE);
 	}
 
@@ -39,9 +40,9 @@ int main(int argc, char* argv[]){
 		exit(EXIT_FAILURE);
 	}
 
-    int i = 1;
+    bool run = true;
 
-    while (i) {
+    while (run) {
         // accept call will give us a new socket descriptor
         int newFD = accept(server_fd, (sockaddr *) &client_addr, &client_addr_size);
         if (newFD == -1) {
@@ -50,11 +51,17 @@ int main(int argc, char* argv[]){
         }
         else{
             cout << "Client 1 just connected\n";
-            i--;
         }
             
         // send call sends the data you specify as second param and it's length as 3rd param, also returns how many bytes were actually sent
-        auto bytes_sent = send(newFD, response.data(), response.length(), 0);
+        auto bytes_received = recv(newFD, &message.front(), message.length(), 0);
+
+        cout << "received message: " << message << endl;
+
+        auto bytes_sent = send(newFD, &reply.front(), reply.length(), 0);
+
+        cout << "sent message: " << reply << endl;
+
         close(newFD);
     }
 }

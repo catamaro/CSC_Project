@@ -12,6 +12,49 @@ void generate_root_CA()
     system("cd root_CA\n openssl req -new -x509 -days 3650 -key root_ca.key -out root_ca.crt -subj /C=PT/ST=Lisbon/L=Lisbon/O=Cripto/OU=CSC-Project/CN=CSC-4  \n");
 }
 
+void install_db_key(string name){
+    cout << "\nInstalling Homomorphic Keys\n";
+
+    string db_key("cd homomorphic_keys\n cp -t ../../");
+    db_key.append(name);//Pasta do cliente
+    db_key.append("/Files/ DB_private.key DB_public.key");
+
+    const char * mov_db_key = db_key.c_str();
+    system(mov_db_key);
+}
+
+void generate_db_key(){
+
+    system("mkdir homomorphic_keys\n");
+    
+    EncryptionParameters parms(scheme_type::bfv);
+
+    size_t poly_modulus_degree = 4096;
+    
+    parms.set_poly_modulus_degree(poly_modulus_degree);
+    parms.set_coeff_modulus(CoeffModulus::BFVDefault(poly_modulus_degree));
+    parms.set_plain_modulus(1024);
+
+    SEALContext context(parms);
+
+
+    KeyGenerator keygen(context);
+    SecretKey private_key = keygen.secret_key();
+    PublicKey public_key;
+    keygen.create_public_key(public_key);
+
+    ofstream public_key_file;
+    ofstream private_key_file;
+    public_key_file.open("homomorphic_keys/DB_public.key");
+    private_key_file.open("homomorphic_keys/DB_private.key");
+
+    private_key.save(private_key_file);
+ 	public_key.save(public_key_file);
+
+ 	private_key_file.close();
+ 	public_key_file.close();
+}
+
 void install_CA_certificate(string name)
 {
     
@@ -64,49 +107,6 @@ void generate_certificate(string name){
 
     const char * rm_csr = csr.c_str();
     system(rm_csr);
-}
-
-void install_db_key(string name){
-    cout << "\nInstalling Homomorphic Keys\n";
-
-    string db_key("cd homomorphic_keys\n cp -t ../../");
-    db_key.append(name);//Pasta do cliente
-    db_key.append("/Files/ DB_private.key DB_public.key");
-
-    const char * mov_db_key = db_key.c_str();
-    system(mov_db_key);
-}
-
-void generate_db_key(){
-
-    system("mkdir homomorphic_keys\n");
-    
-    EncryptionParameters parms(scheme_type::bfv);
-
-    size_t poly_modulus_degree = 4096;
-    
-    parms.set_poly_modulus_degree(poly_modulus_degree);
-    parms.set_coeff_modulus(CoeffModulus::BFVDefault(poly_modulus_degree));
-    parms.set_plain_modulus(1024);
-
-    SEALContext context(parms);
-
-
-    KeyGenerator keygen(context);
-    SecretKey private_key = keygen.secret_key();
-    PublicKey public_key;
-    keygen.create_public_key(public_key);
-
-    ofstream public_key_file;
-    ofstream private_key_file;
-    public_key_file.open("homomorphic_keys/DB_public.key");
-    private_key_file.open("homomorphic_keys/DB_private.key");
-
-    private_key.save(private_key_file);
- 	public_key.save(public_key_file);
-
- 	private_key_file.close();
- 	public_key_file.close();
 }
 
 void install_certificate(string name){
