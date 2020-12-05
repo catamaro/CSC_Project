@@ -12,14 +12,14 @@ find_package(SEAL 3.6.0 EXACT REQUIRED)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY)
 
 # CHOOSE EXECUTABLE NAME (e.g exec)
-add_executable(client1)
+add_executable(client)
 
 # ADD ALL SOURCE FILES TO BE COMPILED (e.g. exec.cpp)
-target_sources(client2 PRIVATE client.cpp )
+target_sources(client PRIVATE client.cpp )
 
 # PRIVATE FLAG MAY BE CHANGED FOR PUBLIC OR INTERFACE
 # SEE: https://cmake.org/pipermail/cmake/2016-May/063400.html
 
 
 # LINK SEAL
-target_link_libraries(client1 SEAL::seal)
+target_link_libraries(client SEAL::seal)

@@ -1,8 +1,4 @@
-#include <iostream>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
+#include "../resources.h"
 
 using namespace std;
 
@@ -52,9 +48,30 @@ string encode_values(string message){
 } 
 
 // function to encode message with private and public key
-string encode_message(string message){
+void encode_message(string message){
     string message_encoded;
-    return message_encoded;
+
+    // create file with message to be encrypted
+    ofstream infile ("Files/message.txt");
+
+    infile << message << endl;
+
+    infile.close();
+
+    // extract server's public key from certificate
+    system("openssl x509 -pubkey -noout -in Files/Server-cert.crt > Files/Server-publ.pem\n");
+    // generate random password file
+    system("openssl rand -base64 32 > session.key\n");
+    // session key signed with server's public key
+    system("openssl rsautl -encrypt -pubin -inkey Files/Server-publ.pem -in session.key -out Files/Client1-session.key.enc\n"); 
+    
+    // sign message with client's private key
+    system("openssl rsautl -sign -in Files/message.txt -inkey Files/Client1-priv.pem -out Files/message.sign\n"); 
+    // encrypt signed message with session key
+    system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/message.sign -out Files/Client1-message.enc -pass file:./session.key\n");   
+
+    // remove aux files
+    system("rm Files/message.sign\n rm Files/message.txt\n"); 
 }
 
 // function to decode message with private and public key  
@@ -126,20 +143,25 @@ int main(int argc, char* argv[]){
         string reply, reply_unecoded, reply_values_unecoded;
 
         getline(cin, message);
-        if(message.compare("exit")){
+        if(message.compare("exit") == 0){
             run = false;
             continue;
         }
 
-        message_values_encoded = encode_values(message);
-        message_encoded = encode_message(message_values_encoded);
+        //message_values_encoded = encode_values(message);
+        encode_message(message);
+        cout << "message was encoded"<<endl;
 
-        reply = connect_to_server(message_encoded);
+        system("mv Files/Client1-message.enc ../Server/Files\n");
+        system("mv Files/Client1-session.key.enc ../Server/Files\n");
+        system("cp Files/Client1-cert.crt ../Server/Files\n");
 
-        reply_unecoded = decode_message(reply);
-        reply_values_unecoded = decode_values(reply_unecoded);
+        reply = connect_to_server("Client1");
 
-        cout << "Query result: " << reply_values_unecoded << endl;
+        //reply_unecoded = decode_message(reply);
+        //reply_values_unecoded = decode_values(reply_unecoded);
+
+        //cout << "Query result: " << reply_values_unecoded << endl;
     }   
 }
 

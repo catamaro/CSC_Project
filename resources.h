@@ -19,6 +19,12 @@
 #include <numeric>
 #include "seal/seal.h"
 
+#include <unistd.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>  
+#include <sstream>
+
 
 /*
 Helper function: Prints the name of the example in a fancy banner.

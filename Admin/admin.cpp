@@ -74,7 +74,7 @@ void generate_certificate(string name){
 
     string p_key("cd root_CA\n openssl genrsa -out ");
     p_key.append(name);
-    p_key.append("-cert.key 1024 \n");
+    p_key.append("-priv.pem 1024\n");
 
     const char * gen_key = p_key.c_str();
     system(gen_key);
@@ -83,7 +83,7 @@ void generate_certificate(string name){
 
     string req("cd root_CA\n openssl req -new -key ");
     req.append(name);
-    req.append("-cert.key -out ");
+    req.append("-priv.pem -out ");
     req.append(name);
     req.append("-cert.csr -subj /C=PT/ST=Lisbon/L=Lisbon/O=Cripto/OU=CSC-Project/CN=cklevn\n");
 
@@ -121,7 +121,7 @@ void install_certificate(string name){
     p_key.append(name);
     p_key.append("-cert.crt ");
     p_key.append(name);
-    p_key.append("-cert.key\n");
+    p_key.append("-priv.pem\n");
 
     const char * mov_key = p_key.c_str();
     system(mov_key);
@@ -135,7 +135,6 @@ void install_certificate(string name){
         system(mov_key);
     }
 }
-
 
 int main()
 {
