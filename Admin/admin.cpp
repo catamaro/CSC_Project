@@ -9,7 +9,7 @@ void generate_root_CA()
     cout << "\nGenarating root key\n";
     system("cd root_CA\n openssl genrsa -out root_ca.key 2048\n"); 
     cout << "\nGenerate root certificate\n";
-    system("cd root_CA\n openssl req -new -x509 -days 3650 -key root_ca.key -out root_ca.crt -subj /C=PT/ST=Lisbon/L=Lisbon/O=Cripto/OU=CSC-Project/CN=CSC-4  \n");
+    system("cd root_CA\n openssl req -new -x509 -days 3650 -key root_ca.key -out root_ca.crt -subj /C=PT/ST=Lisbon/L=Lisbon/O=Cripto/OU=CSC-Project/CN=root  \n");
 }
 
 void install_db_key(string name){

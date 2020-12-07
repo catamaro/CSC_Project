@@ -16,7 +16,7 @@ std::string load_string(string path)
 	return str;
 }
 
-void decode_message(string name){
+string decode_message(string name){
 
     // descrypt session key with server's private key
     string comm("openssl rsautl -decrypt -inkey Files/Server-priv.pem -in Files/");
@@ -27,22 +27,26 @@ void decode_message(string name){
     system(run_comm);
 
     // descrypt message with session key
-    string comm2("openssl enc -d -aes-256-cbc -pbkdf2 -in Files/");
-    comm2.append(name);
-    comm2.append("-message.enc -out Files/message.sign -pass file:./session.key\n");
+    comm = "openssl enc -d -aes-256-cbc -pbkdf2 -in Files/";
+    comm.append(name);
+    comm.append("-message.enc -out Files/message.txt -pass file:./session.key\n");
 
-    const char * run_comm2 = comm2.c_str();
+    const char * run_comm2 = comm.c_str();
     system(run_comm2);
 
-    // remove unecessary files
-    string comm3("rm Files/");
-    comm3.append(name);
-    comm3.append("-message.enc\n rm Files/");
-    comm3.append(name);
-    comm3.append("-session.key.enc\n");
+    // remove unecessary files - encoded message with session key
+    comm = "rm Files/";
+    comm.append(name);
+    comm.append("-message.enc\n");
 
-    const char * run_comm3 = comm3.c_str();
+    const char * run_comm3 = comm.c_str();
     system(run_comm3);
+
+    // import message into variable
+    string message_decoded = load_string("Files/message.txt");
+    cout << "\nMessage decoded: " << message_decoded << endl;
+    
+    return message_decoded;
 }
 
 void encode_message(string query_result, string name){
@@ -69,29 +73,53 @@ void encode_message(string query_result, string name){
     system("rm session.key\n rm Files/query_result.txt");
 }
 
-string verify_client_signature(string name){
-
-    string message_decoded;
+int verify_client_signature(string name){
 
     // extract client's public key from certificate
     string comm("openssl x509 -pubkey -noout -in Files/");
     comm.append(name);
-    comm.append("-cert.crt > Files/Client-publ.pem\n");
+    comm.append("-cert.crt > Files/");
+    comm.append(name);
+    comm.append("-publ.pem\n\n");
 
     const char * run_comm = comm.c_str();
     system(run_comm);
 
-    // verify signature and extract message
-    system("openssl rsautl -verify -inkey Files/Client-publ.pem -in Files/message.sign -pubin > Files/message.txt\n");
+    // verify encrypted session key signature
+    comm = "openssl dgst -sha256 -verify Files/";
+    comm.append(name);
+    comm.append("-publ.pem -signature Files/");
+    comm.append(name);
+    comm.append("-sign.sha256 Files/");
+    comm.append(name);
+    comm.append("-session.key.enc > Files/verified.txt\n");
 
-    // import message into variable
-    message_decoded = load_string("Files/message.txt");
-    cout << "\nMessage decoded: " << message_decoded << endl;
-        
-    // remove unecessary files
-    system("rm Files/Client-publ.pem\n rm Files/message.sign\n");
+    const char * run_comm2 = comm.c_str();
+    system(run_comm2);
 
-    return message_decoded;
+    // remove unecessary files - encrypted sesion key
+    comm = "rm Files/";
+    comm.append(name);
+    comm.append("-session.key.enc");
+
+    const char * run_comm3 = comm.c_str();
+    system(run_comm3);
+
+    // load verified.txt to confirm signature
+    string sign_check = load_string("Files/verified.txt");
+    cout << "\nSignature Validation: " << sign_check << endl;
+
+    system("rm Files/verified.txt\n");
+
+    if(sign_check.compare("Verified OK\n") == 0){
+        cout << "\nSignature is valid!" << endl;
+        return true;
+    }
+    else{
+        cout << "\nerror: Signature not valid! Message will not be considered" << endl;
+        return false;
+    }
+
 }
 
 bool verify_root_CA()
@@ -105,7 +133,7 @@ bool verify_root_CA()
 		system("openssl x509 -noout -subject -in Files/root_ca.crt | sed -n 's/.*CN = \\([^,]*\\).*/\\1/p' > Files/root_id.txt\n");
 		root_id = load_string("Files/root_id.txt");
 
-		if(root_id.compare("CSC-4\n") == 0)
+		if(root_id.compare("root\n") == 0)
 		{
 			root.close();
 			system("rm Files/root_id.txt\n");
@@ -118,7 +146,6 @@ bool verify_root_CA()
 		}
 	}
 	return false;
-
 }
 
 void create_database(){
@@ -285,6 +312,15 @@ string execute_query(string message_decoded){
     return "return query result?";
 }
 
+void send_reply(int newFD, string reply){
+    // message to alert client that the answer is already the files directory
+    auto bytes_sent = send(newFD, &reply.front(), reply.length(), 0);
+
+    cout << "\nSent message: " << reply << endl;
+    // ends communication between client and server
+    close(newFD);
+}
+
 int main(int argc, char* argv[]){
 
     /************************************ setup socket ************************************/
@@ -302,7 +338,7 @@ int main(int argc, char* argv[]){
 
 	local_addr.sin_family = AF_INET;
 	local_addr.sin_addr.s_addr = INADDR_ANY;
-	local_addr.sin_port = htons(5001);
+	local_addr.sin_port = htons(PORT);
 	int err = bind(server_fd, (struct sockaddr *)&local_addr,
 				   sizeof(local_addr));
 	if (err == -1)
@@ -321,7 +357,7 @@ int main(int argc, char* argv[]){
 
     /*********************************** accept messages **********************************/
     bool run = true;
-    string client_name(25, ' '), reply = "finished"; // stores the client name
+    string client_name(25, ' '); // stores the client name
     string message_decoded, query_result;
 
     while (run) {
@@ -339,15 +375,22 @@ int main(int argc, char* argv[]){
         // remove \n from message
         if (!client_name.empty()) client_name = client_name.substr(0, 7);
         
-        // check if root certificate is valid
-        run = verify_root_CA();
-        if (run == false) continue;
+        // verify if root certificate is valid
+        bool verify = verify_root_CA();
+        if(!verify){
+            send_reply(newFD, "invalid");
+            continue;
+        }
         
         // decode message and session key and saves it in folder
-        decode_message(client_name);
-        // verify if message was really signed by the client
-        message_decoded = verify_client_signature(client_name);
-        
+        message_decoded = decode_message(client_name);
+
+        // verify if client's signature is valid
+        verify = verify_client_signature(client_name);
+        if(!verify){
+            send_reply(newFD, "invalid");
+            continue;
+        }
         // creates the directory that will store the tables
         create_database();
         // executes the decrypted query with homomorphic encrypted values
@@ -356,12 +399,7 @@ int main(int argc, char* argv[]){
         // encrypt with session key and move to client folder
         encode_message(query_result, client_name);
 
-        // message to alert client that the answer is already the files directory
-        auto bytes_sent = send(newFD, &reply.front(), reply.length(), 0);
-
-        cout << "\nSent message: " << reply << endl;
-        // ends communication between client and server
-        close(newFD);
+        send_reply(newFD, "finished");        
     }
     /*********************************** accept messages **********************************/
 }
