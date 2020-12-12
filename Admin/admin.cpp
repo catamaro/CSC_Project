@@ -28,13 +28,10 @@ void generate_db_key(){
     system("mkdir homomorphic_keys\n");
     
     EncryptionParameters parms(scheme_type::bfv);
-
-    size_t poly_modulus_degree = 4096;
-    
+    size_t poly_modulus_degree = 16384;
     parms.set_poly_modulus_degree(poly_modulus_degree);
     parms.set_coeff_modulus(CoeffModulus::BFVDefault(poly_modulus_degree));
-    parms.set_plain_modulus(1024);
-
+    parms.set_plain_modulus(64);
     SEALContext context(parms);
 
 
@@ -59,7 +56,7 @@ void install_CA_certificate(string name)
 {
     
     // The root CA certificate
-    string rca("cd root_CA\ncp root_ca.crt ~/Documents/Técnico/Cripto/Projeto/CSC_Project/");
+    string rca("cd root_CA\ncp root_ca.crt ~/Documents/Técnico/Cripto/CSC_Project/");
     rca.append(name);
     rca.append("/");
     rca.append("Files/");

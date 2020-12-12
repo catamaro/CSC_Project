@@ -1,6 +1,7 @@
 #include "../resources.h"
 
 using namespace std;
+using namespace seal;
 
 std::string load_string(string path)
 {
@@ -16,7 +17,25 @@ std::string load_string(string path)
 	return str;
 }
 
-string decode_message(string name){
+void decode_values_message(string name){
+    // descrypt message with session key
+    string comm("openssl enc -d -aes-256-cbc -pbkdf2 -in Files/");
+    comm.append(name);
+    comm.append("-values.enc -out Files/values.txt -pass file:./session.key\n");
+
+    const char * run_comm2 = comm.c_str();
+    system(run_comm2);
+
+    // remove unecessary files - encoded message with session key
+    comm = "rm Files/";
+    comm.append(name);
+    comm.append("-values.enc\n");
+
+    const char * run_comm3 = comm.c_str();
+    system(run_comm3);
+}
+
+string decode_query(string name){
 
     // descrypt session key with server's private key
     string comm("openssl rsautl -decrypt -inkey Files/Server-priv.pem -in Files/");
@@ -122,8 +141,7 @@ int verify_client_signature(string name){
 
 }
 
-bool verify_root_CA()
-{
+bool verify_root_CA(){
 	string root_id;
 
 	ifstream root("Files/root_ca.crt");
@@ -187,7 +205,7 @@ void create_clients_file(string name){
     filename.append("_clients.txt");
     
     //directory to create the file
-    string path1("/home/catarinamaro/Documents/Técnico/Cripto/Projeto/CSC_Project/Server/Encrypted_Database/");
+    string path1("/home/catarinamaro/Documents/Técnico/Cripto/CSC_Project/Server/Encrypted_Database/");
     path1.append(name);
     path1.append("/");
     path1.append(filename);
@@ -233,8 +251,8 @@ int create_table(string message){
     int i = 1;
     int j = 0;
     int get_col = 0;
-    int type = 0;
-    char colnames[10][10] = {"", "", "", "", "", "", "","", "", "" }; //maximum 10 columns and 10 size
+    vector<string> colnames(10);
+    //char colnames[10][10] = {"", "", "", "", "", "", "","", "", "" }; //maximum 10 columns and 10 size
     //Get name of the table and the columns
     for (auto x : message) 
     {
@@ -252,8 +270,8 @@ int create_table(string message){
                 i = 100;
             }
             if(get_col){
-                //const char * coluna = word.c_str();
-                strcpy(colnames[j], word.c_str());
+                //strcpy(colnames[j], word.c_str());
+                colnames.insert(colnames.end(), word.c_str());
                 j += 1;
                 word = "";
             }
@@ -271,31 +289,166 @@ int create_table(string message){
     if (!name.empty() && name[name.length()-1] == '\n') name.erase(name.length()-1);
 
     // Check if table already exists, if not, create
-    if(check_exists_table(name) == 0){
-        //table already exists
-        return 0;
-    }
+    check_exists_table(name);
 
-    create_clients_file(name);
     //Creating name of the file that contains clients ID
-
-    for (int k = 0; k<10; k++){
-        if(strcmp(colnames[k], "") != 0){
-            cout << colnames[k] << endl;
-            create_column(name, colnames[k]);
+    create_clients_file(name);
+    
+    //Creating columns
+    for (int k = 0; k<colnames.size(); k++){
+        if(colnames.at(k).compare("") != 0){
+            cout << colnames.at(k) << endl;
+            create_column(name, colnames.at(k));
         }
     }    
     return 1;
 }
 
-string execute_query(string message_decoded){
+SEALContext create_context(){
+    EncryptionParameters parms(scheme_type::bfv);
+    size_t poly_modulus_degree = 16384;
+    parms.set_poly_modulus_degree(poly_modulus_degree);
+    parms.set_coeff_modulus(CoeffModulus::BFVDefault(poly_modulus_degree));
+    parms.set_plain_modulus(64);
+    SEALContext context(parms);
+
+    return context;
+}
+
+void insert_values(int n_value, string tablename, vector<string> colname){
+    SEALContext context = create_context();
+
+    vector<Ciphertext> value_encrypted(5);
+
+    ifstream values_file;
+    values_file.open("Files/values.txt", ios::binary);
+    cout << "num value are: " << n_value << endl;
+
+    for(int i=0; i<n_value; i++){
+        string file_path("Encrypted_Database/");
+        file_path.append(tablename);
+        file_path.append("/");
+        file_path.append(colname.at(i));
+        file_path.append("/");
+        file_path.append(to_string(i));
+        file_path.append(".txt");
+
+        ofstream entry_file;
+        entry_file.open(file_path, ios::binary);
+        value_encrypted.at(0).load(context, values_file);
+        value_encrypted.at(0).save(entry_file);
+
+        for(int i=1; i<5; i++){
+            value_encrypted.at(i).load(context, values_file);
+            value_encrypted.at(i).save(entry_file);
+        }
+
+        entry_file.close();
+    }
+}
+
+vector<string> check_query_names(string message_decoded, string *tablename){
+    int i = 1;
+    int flag = 0;
+    string word = "";
+    vector<string> colnames = {};
+
+    string s = message_decoded;
+    string delimiter = " ";
+
+    size_t pos = 0;
+    string token;
+    while ((pos = s.find(delimiter)) != string::npos) {
+        token = s.substr(0, pos);
+        s.erase(0, pos + delimiter.length());
+        if(i == 4){
+            cout << "Table name is " + token << endl;
+            *tablename = token;
+            /*if(check_exists_table(token) == 0){
+                //table already exists
+                cout << "Table does not exists" << '\n';
+                return {};
+            }*/
+        }
+        if(i==5){
+            token.erase(0, 1);
+            while(token.compare(")") != 0 && (pos = s.find(delimiter)) != string::npos){
+                colnames.insert(colnames.end(), token);
+                token = s.substr(0, pos);
+                s.erase(0, pos + delimiter.length());
+            }
+        }        
+        
+        i++;
+    }
+    cout << s << endl;
+
+
+    //char colnames[10][10] = {"", "", "", "", "", "", "","", "", "" };
+    /*for (auto x : message_decoded) 
+    {
+        if (x == ' ')
+        {
+            i += 1;
+            cout << i << '\n';
+            if(i == 4){
+                cout << "Table name is " + word << endl;
+                if(check_exists_table(word) == 0){
+                    //table already exists
+                    cout << "Table does not exists" << '\n';
+                    return {};
+                }
+                *tablename = word;
+                i = -1;
+            }
+            if(flag){
+                cout << "OLA" << '\n';
+                colnames.insert(colnames.end(), word.c_str());
+                //strcpy(colnames[i], word.c_str());
+                word = "";
+            }
+        }
+        else if(x = '('){
+            flag = 1;
+            word = "";
+            i = -1;
+        }
+        else if(x = ')'){
+            flag = 0;
+            word = "";
+            i = -1;
+        }
+        else word = word + x;
+    }
+    for (int k = 0; k<colnames.size(); k++){
+            cout << colnames.at(k) << endl;
+        }*/
+    return colnames;
+}
+
+string execute_query(string message_decoded, string client_name){
     if (message_decoded.find("CREATE TABLE") == 0) {
         cout << "Found CREATE TABLE!" << '\n';
         create_table(message_decoded);
+        return "CREATE";
     }
     else if (message_decoded.find("INSERT") == 0)
     {
         cout << "Found INSERT!" << '\n';
+        vector<string> colnames(10);
+        string tablename = "";
+        colnames = check_query_names(message_decoded, &tablename);
+        
+        int n_values = count(message_decoded.begin(),message_decoded.end(), '%');
+        
+        decode_values_message(client_name);
+        for (int k = 0; k<colnames.size(); k++){
+            cout << colnames.at(k) << endl;
+        }
+      
+        insert_values(n_values, tablename, colnames);
+        
+        return "INSERT";
     }
     else if (message_decoded.find("DELETE") == 0)
     {
@@ -383,7 +536,7 @@ int main(int argc, char* argv[]){
         }
         
         // decode message and session key and saves it in folder
-        message_decoded = decode_message(client_name);
+        message_decoded = decode_query(client_name); // query decoded
 
         // verify if client's signature is valid
         verify = verify_client_signature(client_name);
@@ -394,8 +547,7 @@ int main(int argc, char* argv[]){
         // creates the directory that will store the tables
         create_database();
         // executes the decrypted query with homomorphic encrypted values
-        query_result = execute_query(message_decoded);
-
+        query_result = execute_query(message_decoded, client_name);
         // encrypt with session key and move to client folder
         encode_message(query_result, client_name);
 

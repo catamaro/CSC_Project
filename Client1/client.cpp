@@ -1,6 +1,7 @@
 #include "../resources.h"
 
 using namespace std;
+using namespace seal;
 
 string load_string(string path)
 {
@@ -60,14 +61,54 @@ string connect_to_server(string message)
     return reply;
 }
 
-// function to encode values with Homomorphic Database Key
-string encode_values(string message)
+vector<int> decrypt_binaries(vector<Ciphertext> results)
 {
-    string message_values_encoded;
+    EncryptionParameters parms(scheme_type::bfv);
+    size_t poly_modulus_degree = 16384;
+    parms.set_poly_modulus_degree(poly_modulus_degree);
+    parms.set_coeff_modulus(CoeffModulus::BFVDefault(poly_modulus_degree));
+    parms.set_plain_modulus(64);
+    SEALContext context(parms);
 
-    
+    SecretKey private_key;
+    ifstream stream_private_Key;
+    stream_private_Key.open("Files/DB_private.key", ios::binary);
+    private_key.load(context, stream_private_Key);
+    stream_private_Key.close();
 
-    return message_values_encoded;
+    Decryptor decryptor(context, private_key);
+
+    Plaintext plain_result;
+    vector<string> comparasion(3);
+    int i;
+    vector<int> int_results(3);
+
+    for (i = 0; i < 3; i++)
+    {
+        if (decryptor.invariant_noise_budget(results.at(i)) == 0)
+        {
+            /*if (i = 2) //B>A usualmente dá erro, mas pode ser obtido com uma conjunção de A=B e A>B
+            {
+                int_results.at(i) = !int_results.at(1) & !int_results.at(0);
+            }
+            else
+            {*/
+                cout << "Erro: Noise budget nulo\n";
+            //}
+        }
+        else
+        {
+            decryptor.decrypt(results.at(i), plain_result);
+            comparasion.at(i) = plain_result.to_string();
+            int_results.at(i) = stoi(comparasion.at(i), nullptr, 10);
+        }
+    }
+
+    cout << "A=B: " << int_results.at(0) << "\n";
+    cout << "A>B: " << int_results.at(1) << "\n";
+    cout << "A<B: " << int_results.at(2) << "\n";
+
+    return int_results;
 }
 
 // function to encode message with private and public key
@@ -92,18 +133,17 @@ void encode_message(string message)
     system("openssl dgst -sha256 -sign Files/Client1-priv.pem -out Files/Client1-sign.sha256 Files/Client1-session.key.enc");
     // encrypt message with session key
     system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/message.txt -out Files/Client1-message.enc -pass file:./session.key\n");
+    system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/values.txt -out Files/Client1-values.enc -pass file:./session.key\n");
 
     // remove unnecessary files
     system("rm Files/message.txt\n");
 
     // moves encoded session-key, encoded message and certificate to server's folder
     system("mv Files/Client1-message.enc ../Server/Files\n");
+    system("mv Files/Client1-values.enc ../Server/Files\n");
     system("mv Files/Client1-session.key.enc ../Server/Files\n");
     system("mv Files/Client1-sign.sha256 ../Server/Files\n");
     system("cp Files/Client1-cert.crt ../Server/Files\n");
-
-    // sign message with client's private key
-    // system("openssl rsautl -sign -in Files/message.txt -inkey Files/Client1-priv.pem -out Files/message.sign\n");
 }
 
 // function to decode message with private and public key
@@ -118,182 +158,8 @@ void decode_message()
     system("rm Files/query_result.enc\n rm session.key");
 }
 
-// function to decode values with Homomorphic Database Key
-string decode_values(string reply)
+void print_commands()
 {
-    string reply_values_decoded;
-    return reply_values_decoded;
-}
-
-// funciton to make it easy to write the query
-string create_query(int input_opt)
-{
-    int input;
-    string tablename, col_name, col_val, col_op, row_num;
-    string comm, comm1;
-
-    if(input_opt == 1){
-        cout << "Input message: ";
-        cin.ignore();
-        getline(cin, comm);
-        return comm;
-    }
-
-    cout << "Choose Query (1 to 6): ";
-    cin >> input;
-
-    switch (input){
-    case 1:
-        cout << "Table Name ('end' to terminate): ";
-        cin >> tablename;
-
-        comm = "CREATE TABLE ";
-        comm.append(tablename);
-        comm.append(" (");
-
-        // construct query
-        while (true)
-        {
-            cout << "Column Name: ";
-            cin >> col_name;
-
-            if(col_name.compare("end") == 0) break;
-
-            comm.append(col_name);
-            comm.append(" ");
-        }
-        comm.append(")");
-
-        break;
-    case 2:
-        cout << "Table Name ('end' to terminate): ";
-        cin >> tablename;
-
-        comm = "INSERT INTO TABLE  ";
-        comm.append(tablename);
-        comm.append(" (");
-
-        comm1 = "VALUES ";
-
-        // construct query
-        while(true)
-        {
-            cout << "Column Name: ";
-            cin >> col_name;
-            if(col_name.compare("end") == 0) break;
-
-            cout << "Column Value: ";
-            cin >> col_val;
-
-            comm.append(col_name);
-            comm.append(" ");
-            comm1.append(col_val);
-            comm1.append(" ");
-        }
-        comm.append(") ");
-        comm.append(comm1);
-
-        cout << comm << endl;
-
-        break;
-    case 3:
-        cout << "Table Name: ";
-        cin >> tablename;
-
-        cout << "Row Number: ";
-        cin >> row_num;
-
-        comm = "DELETE ";
-        comm.append(row_num);
-        comm.append("FROM ");
-        comm.append(tablename);
-        
-        break;
-    case 4:
-        cout << "Table Name: ";
-        cin >> tablename;
-
-        cout << "Row Number: ";
-        cin >> row_num;
-
-        comm = "SELECT ROW ";
-        comm.append(row_num);
-        comm.append("FROM ");
-        comm.append(tablename);
-        
-        break;
-    case 5:
-        cout << "Table Name('end' to terminate): ";
-        cin >> tablename;
-
-        comm = "SELECT ";
-        comm.append(row_num);
-        while(true)
-        {
-            cout << "Column Name: ";
-            cin >> col_name;
-            if(col_name.compare("end") == 0) break;
-
-            comm.append(col_name);
-            comm.append(" ");
-        }
-
-        comm.append("FROM ");
-        comm.append(tablename);
-        comm.append(" WHERE ");
-
-        while(true)
-        {
-            cout << "\nColumn Name: ";
-            cin >> col_name;
-            if(col_name.compare("end") == 0) break;
-            cout << "Operand: ";
-            cin >> col_op;
-            cout << "Column Value: ";
-            cin >> col_val;
-
-            comm.append(col_name);
-            comm.append(col_op);
-            comm.append(col_val);
-            comm.append(" ");
-        }
-        break;
-    case 6:
-        cout << "Table Name('end' to terminate): ";
-        cin >> tablename;
-
-        cout << "Column Name: ";
-        cin >> col_name;
-
-        comm = "SELECT SUM(";
-        comm.append(col_name);
-        comm.append(") FROM ");      
-        comm.append(tablename);
-        comm.append(" WHERE ");
-
-        while(true)
-        {
-            cout << "\nColumn Name: ";
-            cin >> col_name;
-            if(col_name.compare("end") == 0) break;
-            cout << "Operand: ";
-            cin >> col_op;
-            cout << "Column Value: ";
-            cin >> col_val;
-
-            comm.append(col_name);
-            comm.append(col_op);
-            comm.append(col_val);
-            comm.append(" ");
-        }
-        break;
-    }
-
-    cout << "\nCommand: " << comm << endl;
-    return comm;
-}
-
-void print_commands(){
     cout << "+-------------------------------------------------------------------------------------------------------------------------------------+" << endl;
     cout << "| Commands                   | Syntax                                                                                                 |" << endl;
     cout << "+----------------------------+--------------------------------------------------------------------------------------------------------+" << endl;
@@ -307,30 +173,70 @@ void print_commands(){
     cout << "+----------------------------+--------------------------------------------------------------------------------------------------------+" << endl;
 }
 
-void print_query_result(){
+vector<int> dec_to_binary(int number)
+{
+    vector<int> binary;
+    int i;
 
+    for (i = 0; i < 8; i++)
+    {
+        cout << "bit nº " << i;
+        binary.push_back(number % 2);
+        cout << ": " << binary[i] << "\n";
+        number = number / 2;
+    }
+    if (number > 0)
+    {
+        cout << "Erro: número com mais de 8 bits. Por favor insira um número mais pequeno \n";
+        exit(1);
+    }
+
+    return binary;
 }
 
-bool verify_documents(){
+vector<Ciphertext> encrypt_binaries(vector<int> binary, Encryptor *encriptor)
+{
+    Plaintext binary_plain;
+    int size = binary.size();
+    vector<Ciphertext> encrypted(size);
+    int i;
+    for (i = 0; i < size; i++)
+    {
+        binary_plain = to_string(binary.at(i));
+        (*encriptor).encrypt(binary_plain, encrypted.at(i));
+    }
+
+    return encrypted;
+}
+
+void print_query_result()
+{
+}
+
+bool verify_documents()
+{
     // check if root_ca is valid
     string root_id;
 
-	ifstream root("Files/root_ca.crt");
-	if (!root.fail()) {
-		system("openssl x509 -in Files/root_ca.crt -noout -pubkey > Files/root-publ.key\n");
-		system("openssl x509 -noout -subject -in Files/root_ca.crt | sed -n 's/.*CN = \\([^,]*\\).*/\\1/p' > Files/root_id.txt\n");
-		root_id = load_string("Files/root_id.txt");
-        
+    ifstream root("Files/root_ca.crt");
+    if (!root.fail())
+    {
+        system("openssl x509 -in Files/root_ca.crt -noout -pubkey > Files/root-publ.key\n");
+        system("openssl x509 -noout -subject -in Files/root_ca.crt | sed -n 's/.*CN = \\([^,]*\\).*/\\1/p' > Files/root_id.txt\n");
+        root_id = load_string("Files/root_id.txt");
+
         root.close();
         system("rm Files/root_id.txt\n");
 
-		if(root_id.compare("root\n") != 0){
+        if (root_id.compare("root\n") != 0)
+        {
             cout << "CA inválido: não corresponde à root\n";
             return false;
-        } 
+        }
     }
-    else{
-        cout << "Cannot locate root_ca certificate" <<endl;
+    else
+    {
+        cout << "Cannot locate root_ca certificate" << endl;
         return false;
     }
 
@@ -340,8 +246,9 @@ bool verify_documents(){
     // load verified.txt to confirm signature
     string sign_check = load_string("Files/verified.txt");
     system("rm Files/verified.txt\n");
-    
-    if(sign_check.find("Files/Client1-cert.crt: OK") != 0){
+
+    if (sign_check.find("Files/Client1-cert.crt: OK") != 0)
+    {
         cout << "\nerror: Signature not valid! Message will not be considered" << endl;
         return false;
     }
@@ -350,12 +257,280 @@ bool verify_documents(){
     int crt = system("openssl x509 -noout -modulus -in Files/Client1-cert.crt| openssl md5");
     int key = system("openssl rsa -noout -modulus -in Files/Client1-priv.pem | openssl md5");
 
-    if(crt != key){
+    if (crt != key)
+    {
         cout << "Client's private key doesn't match certificate" << endl;
         return false;
     }
     return true;
-} 
+}
+
+void decode_values(int size){
+    EncryptionParameters parms(scheme_type::bfv);
+    size_t poly_modulus_degree = 16384;
+    parms.set_poly_modulus_degree(poly_modulus_degree);
+    parms.set_coeff_modulus(CoeffModulus::BFVDefault(poly_modulus_degree));
+    parms.set_plain_modulus(64);
+    SEALContext context(parms);
+
+    ifstream private_key_file;
+    SecretKey private_key;
+
+    private_key_file.open("Files/DB_private.key", ios::binary);
+    private_key.load(context, private_key_file);
+
+    Decryptor decryptor(context, private_key);
+
+    Ciphertext full_encrypt;
+    Plaintext plain_number;
+    vector<Ciphertext> binary_encrypt(8);
+    vector<Plaintext> plain_binary(8);
+
+    ifstream values_file;
+    values_file.open("Files/values.txt", ios::binary);
+    string result_string("");
+
+    for(int i=0; i<size; i++){
+        full_encrypt.load(context, values_file);
+        decryptor.decrypt(full_encrypt, plain_number);
+
+        auto result_string1 = plain_number.to_string();
+        cout << "result: " << result_string1 << endl;
+        for(int i=0; i<8; i++){
+            binary_encrypt.at(i).load(context, values_file);
+            decryptor.decrypt(binary_encrypt.at(i), plain_binary.at(i));
+
+            result_string.insert(0, plain_binary.at(i).to_string());
+            if( i == 7){
+                cout << "result: " << result_string << endl;
+                result_string = "";
+            }
+        }
+    }
+}
+
+// function to encode values with Homomorphic Database Key
+void encode_values(vector<string> values)
+{
+    EncryptionParameters parms(scheme_type::bfv);
+    size_t poly_modulus_degree = 16384;
+    parms.set_poly_modulus_degree(poly_modulus_degree);
+    parms.set_coeff_modulus(CoeffModulus::BFVDefault(poly_modulus_degree));
+    parms.set_plain_modulus(64);
+    SEALContext context(parms);
+
+    ifstream public_key_file;
+    PublicKey public_key;
+
+    public_key_file.open("Files/DB_public.key", ios::binary);
+    public_key.load(context, public_key_file);
+
+    Evaluator evaluator(context);
+    Encryptor encryptor(context, public_key);
+
+    vector<int> binary;
+    vector<Ciphertext> binary_encrypt;
+    Ciphertext full_encrypt;
+    Plaintext full_plain;
+
+    ofstream values_file;
+    values_file.open("Files/values.txt", ios::binary);
+
+    for(int i=0; i<values.size(); i++){
+        /*Encriptar nº completo*/
+        full_plain = values.at(i);
+        encryptor.encrypt(full_plain, full_encrypt);
+
+        auto size_encrypted = full_encrypt.save(values_file);
+        cout << "size of encryption: " << size_encrypted << endl;
+
+        binary = dec_to_binary(stoi(values.at(i)));
+
+        /*Encriptar bit a bit*/
+        binary_encrypt = encrypt_binaries(binary, &encryptor);
+        for(int i=0; i<binary.size(); i++) binary_encrypt.at(i).save(values_file);
+    }
+
+    values_file.close();
+
+    decode_values(values.size());
+}
+
+// funciton to make it easy to write the query
+string create_query(int input_opt, vector<string> *val_to_encrypt)
+{
+    int input;
+    string tablename, col_name, col_val, col_op, row_num;
+    string comm, comm1;
+
+    if (input_opt == 1)
+    {
+        cout << "Input message: ";
+        cin.ignore();
+        getline(cin, comm);
+        return comm;
+    }
+    else if (input_opt == 0)
+    {
+
+        cout << "Choose Query (1 to 6): ";
+        cin >> input;
+
+        switch (input)
+        {
+        case 1:
+            cout << "Table Name ('end' to terminate): ";
+            cin >> tablename;
+
+            comm = "CREATE TABLE ";
+            comm.append(tablename);
+            comm.append(" (");
+
+            // construct query
+            while (true)
+            {
+                cout << "Column Name: ";
+                cin >> col_name;
+
+                if (col_name.compare("end") == 0)
+                    break;
+
+                comm.append(col_name);
+                comm.append(" ");
+            }
+            comm.append(")");
+
+            break;
+        case 2:
+            cout << "Table Name ('end' to terminate): ";
+            cin >> tablename;
+
+            comm = "INSERT INTO TABLE ";
+            comm.append(tablename);
+            comm.append(" (");
+
+            comm1 = "VALUES ";
+
+            // construct query
+            while (true)
+            {
+                cout << "Column Name: ";
+                cin >> col_name;
+                if (col_name.compare("end") == 0)
+                    break;
+
+                cout << "Column Value: ";
+                cin >> col_val;
+
+                // add value to list of values
+                (*val_to_encrypt).insert((*val_to_encrypt).end(), col_val);
+                comm.append(col_name);
+                comm.append(" ");
+                comm1.append(" % ");
+            }
+            comm.append(") ");
+            comm.append(comm1);
+
+            break;
+        case 3:
+            cout << "Table Name: ";
+            cin >> tablename;
+
+            cout << "Row Number: ";
+            cin >> row_num;
+
+            (*val_to_encrypt).insert((*val_to_encrypt).end(), row_num);
+            comm = "DELETE % FROM ";
+            comm.append(tablename);
+
+            break;
+        case 4:
+            cout << "Table Name: ";
+            cin >> tablename;
+
+            cout << "Row Number: ";
+            cin >> row_num;
+
+            (*val_to_encrypt).insert((*val_to_encrypt).end(), row_num);
+            comm = "SELECT ROW % FROM ";
+            comm.append(tablename);
+
+            break;
+        case 5:
+            cout << "Table Name('end' to terminate): ";
+            cin >> tablename;
+
+            comm = "SELECT ";
+            while (true)
+            {
+                cout << "Column Name: ";
+                cin >> col_name;
+                if (col_name.compare("end") == 0)
+                    break;
+
+                comm.append(col_name);
+                comm.append(" ");
+            }
+
+            comm.append("FROM ");
+            comm.append(tablename);
+            comm.append(" WHERE ");
+
+            while (true)
+            {
+                cout << "\nColumn Name: ";
+                cin >> col_name;
+                if (col_name.compare("end") == 0)
+                    break;
+                cout << "Operand: ";
+                cin >> col_op;
+                cout << "Column Value: ";
+                cin >> col_val;
+
+                (*val_to_encrypt).insert((*val_to_encrypt).end(), col_val);
+                comm.append(col_name);
+                comm.append(col_op);
+                comm.append("% ");
+            }
+            break;
+        case 6:
+            cout << "Table Name('end' to terminate): ";
+            cin >> tablename;
+
+            cout << "Column Name: ";
+            cin >> col_name;
+
+            comm = "SELECT SUM(";
+            comm.append(col_name);
+            comm.append(") FROM ");
+            comm.append(tablename);
+            comm.append(" WHERE ");
+
+            while (true)
+            {
+                cout << "\nColumn Name: ";
+                cin >> col_name;
+                if (col_name.compare("end") == 0)
+                    break;
+                cout << "Operand: ";
+                cin >> col_op;
+                cout << "Column Value: ";
+                cin >> col_val;
+
+                (*val_to_encrypt).insert((*val_to_encrypt).end(), col_val);
+                comm.append(col_name);
+                comm.append(col_op);
+                comm.append("% ");
+            }
+            break;
+        }
+    }
+    else
+        return "erro";
+
+    cout << "\nCommand: " << comm << endl;
+    return comm;
+}
 
 int main(int argc, char *argv[])
 {
@@ -363,29 +538,33 @@ int main(int argc, char *argv[])
          << endl;
 
     bool run = true;
-
     string message, message_values_encoded, message_encoded;
     string reply, reply_decoded, reply_values_decoded;
     int input_opt;
+    
+    std::vector<std::string> val_to_encrypt {};
 
     bool verify = verify_documents();
-    if(!verify) return EXIT_FAILURE; 
+    if (!verify)
+        return EXIT_FAILURE;
 
     while (run)
     {
         // prints the server's API possible commands
         print_commands();
-        
+
         cout << "Construct Query (0), Input by Hand (1): ";
         cin >> input_opt;
 
-        message = create_query(input_opt);
-        
-        //message_values_encoded = encode_values(message);
+        message = create_query(input_opt, &val_to_encrypt);
+        while (message.compare("erro") == 0){message = create_query(input_opt, &val_to_encrypt);}
+  
+        encode_values(val_to_encrypt);
         encode_message(message);
 
         reply = connect_to_server("Client1");
-        if(reply.compare("invalid   ") == 0){
+        if (reply.compare("invalid   ") == 0)
+        {
             cout << "Problem authenticating certificates. Message was not considered" << endl;
             continue;
         }
