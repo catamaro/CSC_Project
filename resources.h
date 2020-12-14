@@ -25,7 +25,71 @@
 #include <netinet/in.h>  
 #include <sstream>
 
-#define PORT 5001
+#define PORT 5000
+
+using namespace std;
+using namespace seal;
+
+/* Functions of logic comparator */
+Ciphertext NOT (Ciphertext input, Evaluator* eval);
+Ciphertext AND(Ciphertext inA, Ciphertext inB, Evaluator *eval);
+Ciphertext OR(Ciphertext inA, Ciphertext inB, Evaluator *eval, RelinKeys relin_keys);
+vector <Ciphertext> bit_Comparator (Ciphertext inA, Ciphertext inB, vector <Ciphertext> rolling, RelinKeys relin_keys, Evaluator* eval);
+vector <Ciphertext> Full_comparator(vector <Ciphertext> A, vector <Ciphertext> B, RelinKeys relin_keys, Evaluator* eval);
+vector<Ciphertext> encrypt_binaries(vector<int> binary, Encryptor *encriptor);
+vector<int> dec_to_binary(int number);
+vector<int> decrypt_binaries(vector<Ciphertext> results);
+
+/* Functions of Client */
+string create_query(int input_opt, vector<string> *val_to_encrypt, int *query_num);
+void decode_values();
+void encode_values(vector<string> values);
+bool verify_documents();
+void print_commands();
+void decode_message(int query_num);
+void encode_message(string message, int val_flag);
+string connect_to_server(string message);
+string load_string(string path);
+
+/* Functions of Server */
+bool verify_root_CA();
+int verify_client_sign(string name);
+string decode_query(string name);
+void encode_message(string query_result, string name);
+void decode_values_message(string name);
+
+void create_database();
+int check_exists_table(string name);
+void create_clients_file(string name);
+void create_column(string name, string column);
+int create_table(string message);
+vector<string> check_query_names(string message_decoded, string *tablename, string command,int *row_num, vector<string> *colnames_op, vector<int> *logic, vector<int> *operators);
+string execute_query(string message_decoded, string client_name);
+void send_reply(int newFD, string reply);
+
+void delete_line(int row_num, string tablename);
+void insert_values(int n_value, string tablename, vector<string> colname);
+void select_line(string tablename, int row_num);
+vector<Ciphertext> select(vector<string> colnames, string tablename, int operation);
+vector<Ciphertext> GetTableVal(vector<string> colnames, string tablename, int row_num);
+vector<Ciphertext> GetClientInputVal(SEALContext context);
+
+
+string load_string(string path)
+{
+    ifstream f(path);
+    string str;
+    if (f)
+    {
+        ostringstream ss;
+        ss << f.rdbuf();
+        str = ss.str();
+    }
+    f.close();
+
+    return str;
+}
+
 /*
 Helper function: Prints the name of the example in a fancy banner.
 */
@@ -178,7 +242,6 @@ inline void print_vector(std::vector<T> vec, std::size_t print_size = 4, int pre
     */
     std::cout.copyfmt(old_fmt);
 }
-
 
 /*
 Helper function: Prints a matrix of values.

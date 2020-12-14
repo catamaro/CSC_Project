@@ -3,6 +3,7 @@
 CMakeCache.txt
 *Makefile
 *.cmake
+*Encrypted_Database/
 
 # generated keys
 *.crt
@@ -10,6 +11,7 @@ CMakeCache.txt
 *homomorphic_keys/
 *Files/
 *.keys
+*.key
 *.csr
 
 # executables
