@@ -1,6 +1,5 @@
 #include "../resources.h"
 
-
 /******************************************** OpenSSL functions *********************************************/
 
 bool verify_root_CA()
@@ -430,9 +429,12 @@ vector<string> check_query_names(string message_decoded, string *tablename, stri
             *row_num = stoi(token);
         else if (i == 3 && command.compare("SELECT ROW") == 0)
             *row_num = stoi(token);
-        else if (command.compare("INSERT") == 0){
-            if (i == 4) *tablename = token;
-            else if (i == 5){
+        else if (command.compare("INSERT") == 0)
+        {
+            if (i == 4)
+                *tablename = token;
+            else if (i == 5)
+            {
                 token.erase(0, 1);
                 while (token.compare(")") != 0 && (pos = s.find(delimiter)) != string::npos)
                 {
@@ -444,7 +446,8 @@ vector<string> check_query_names(string message_decoded, string *tablename, stri
         }
         else if (command.compare("SELECT") == 0)
         {
-            if(i==2){
+            if (i == 2)
+            {
                 while (token.compare("FROM") != 0 && (pos = s.find(delimiter)) != string::npos)
                 {
                     colnames.insert(colnames.end(), token);
@@ -452,32 +455,45 @@ vector<string> check_query_names(string message_decoded, string *tablename, stri
                     s.erase(0, pos + delimiter.length());
                 }
             }
-            else if (i == 3) *tablename = token;
-            else if (i == 5) (*colnames_op).insert((*colnames_op).end(), token);
-            else if (i == 6){
-                if(token.compare("=")==0) (*operators).insert((*operators).end(), 0);
-                else if(token.compare(">")==0) (*operators).insert((*operators).end(), 1);
-                else if(token.compare("<")==0) (*operators).insert((*operators).end(), 2);
+            else if (i == 3)
+                *tablename = token;
+            else if (i == 5)
+                (*colnames_op).insert((*colnames_op).end(), token);
+            else if (i == 6)
+            {
+                if (token.compare("=") == 0)
+                    (*operators).insert((*operators).end(), 0);
+                else if (token.compare(">") == 0)
+                    (*operators).insert((*operators).end(), 1);
+                else if (token.compare("<") == 0)
+                    (*operators).insert((*operators).end(), 2);
             }
-            else if (i == 8){
+            else if (i == 8)
+            {
                 //logic
-                if(token.compare("AND")==0) (*logic).insert((*logic).end(), 0);
-                else if(token.compare("OR")==0) (*logic).insert((*logic).end(), 1);
+                if (token.compare("AND") == 0)
+                    (*logic).insert((*logic).end(), 0);
+                else if (token.compare("OR") == 0)
+                    (*logic).insert((*logic).end(), 1);
                 i = 4;
             }
         }
-        else if (command.compare("SUM") == 0){
-            if (i == 2){
+        else if (command.compare("SUM") == 0)
+        {
+            if (i == 2)
+            {
                 token.erase(0, 4);
-                token.erase(token.length()-1, 1);
+                token.erase(token.length() - 1, 1);
                 colnames.insert(colnames.begin(), token);
                 cout << "Col name is " + colnames.at(0) << endl;
             }
-            else if (i == 4)*tablename = token;
-            else if (i == 5){
+            else if (i == 4)
+                *tablename = token;
+            else if (i == 5)
+            {
                 i = 4;
                 command = "SELECT";
-            } 
+            }
         }
 
         i++;
@@ -509,7 +525,7 @@ string execute_query(string message_decoded, string client_name)
     vector<string> colnames(10);
     string tablename("");
     int row_num = -1;
-    
+
     if (message_decoded.find("CREATE TABLE") == 0)
     {
         cout << "Found CREATE TABLE!" << '\n';
@@ -556,25 +572,28 @@ string execute_query(string message_decoded, string client_name)
     else if (message_decoded.find("SELECT SUM") == 0)
     {
         cout << "Found SELECT SUM!" << '\n';
-    
+
         colnames = check_query_names(message_decoded, &tablename, "SUM", &row_num, &colnames_op, &logic, &operators);
         return "SELECT";
     }
     else if (message_decoded.find("SELECT") == 0)
     {
         cout << "Found SELECT!" << '\n';
-        
-        int operation;
+
         // pôr logo no ficheiro em vez de num vector de ciphertext
 
         colnames = check_query_names(message_decoded, &tablename, "SELECT", &row_num, &colnames_op, &logic, &operators); //NEED OPERATOR
-        for(int i=0; i<colnames_op.size(); i++){
+        for (int i = 0; i < colnames_op.size(); i++)
+        {
             cout << "Colnames " << colnames_op.at(i) << endl;
             cout << "Operators:" << operators.at(i) << endl;
-            if (i != colnames_op.size()-1) cout << "Logic:" << logic.at(i) << endl;
+            if (i != colnames_op.size() - 1)
+                cout << "Logic:" << logic.at(i) << endl;
         }
-         
-        select(colnames, tablename, operation);
+
+        decode_values_message(client_name);
+
+        select(colnames, tablename, operators.at(0));
 
         return "SELECT";
         //ESCREVER PARA FICHEIRO/ENCRIPTAR COM SESSION KEYS
@@ -595,6 +614,37 @@ void send_reply(int newFD, string reply)
     cout << "\nSent message: " << reply << endl;
     // ends communication between client and server
     close(newFD);
+}
+
+vector<string> get_files_names(string tablename, string colname){
+    string path("Encrypted_Database/");
+    path.append(tablename);
+    path.append("/");
+
+    string comm("cd ");
+    comm.append(path);
+    if(colname.compare(" ") != 0){
+        comm.append("\n for file in ");
+        comm.append(colname);
+        comm.append("/* ; do  echo \"$file\"; done");
+    } 
+    else comm.append("\n for folder in */; do  echo \"$folder\"; done");
+
+    const char *run_comm = comm.c_str();
+    string result = exec(run_comm);
+
+    vector<string> names = {};
+    string delimiter = "\n", token;
+    size_t pos = 0;
+    // separate string result in various column names
+    while ((pos = result.find(delimiter)) != std::string::npos) {
+        token = result.substr(0, pos);
+        result.erase(0, pos + delimiter.length());
+
+        names.insert(names.end(), token);
+        cout << token << endl;
+    }
+    return names;
 }
 
 /***************************************** Query Functions *********************************************/
@@ -679,50 +729,22 @@ void delete_line(int row_num, string tablename)
 
 void select_line(string tablename, int row_num)
 {
+    // get column names
+    vector<string> col_names = get_files_names(tablename, " ");
 
-    /************** get column names *****************/
-    string path("Encrypted_Database/");
-    path.append(tablename);
-    path.append("/");
-
-    string comm("cd ");
-    comm.append(path);
-    comm.append("\n for d in */ ; do  echo \"$d\" >> col_name.bin; done");
-
-    const char *run_comm = comm.c_str();
-    system(run_comm);
-
-    string file_path = path;
-    ifstream col_file(file_path.append("col_name.bin"));
-    vector<string> col_name = {};
-    string aux;
-
-    int i = 0;
-    while (getline(col_file, aux))
-    {
-        col_name.insert(col_name.end(), aux);
-        cout << col_name.at(i) << endl;
-        i++;
-    }
-
-    col_file.close();
-    comm = "rm ";
-    comm.append(file_path);
-
-    const char *run_comm1 = comm.c_str();
-    system(run_comm1);
-
-    /************** get values into single file to be sent *****************/
+    // get values into single file to be sent
     SEALContext context = create_context();
     vector<Ciphertext> value_encrypted(9);
 
     ofstream result_file;
     result_file.open("Files/query_result.txt", ios::binary);
 
-    for (int j = 0; j < col_name.size(); j++)
+    for (int j = 0; j < col_names.size(); j++)
     {
-        string value_path = path;
-        value_path.append(col_name.at(j)); //Não falta barras?
+        string value_path("Encrypted_Database/");
+        value_path.append(tablename); //Não falta barras? - Não porque o nome das pastas já vêm com barra - Amaro
+        value_path.append("/");
+        value_path.append(col_names.at(j)); 
         value_path.append(to_string(row_num));
         value_path.append(".txt");
 
@@ -744,10 +766,10 @@ void select_line(string tablename, int row_num)
 
     ofstream infile("Files/query_result_2.txt");
     // store number of values that is being sent in file
-    infile << to_string(col_name.size()) << endl;
+    infile << to_string(col_names.size()) << endl;
     // save column names to send to client
-    for (int j = 0; j < col_name.size(); j++)
-        infile << col_name.at(j) << endl;
+    for (int j = 0; j < col_names.size(); j++)
+        infile << col_names.at(j) << endl;
 
     infile.close();
 }
@@ -774,7 +796,7 @@ vector<Ciphertext> select(vector<string> colnames, string tablename, int operati
     KeyGenerator keygen(context);
 
     keygen.create_relin_keys(relin_keys);
-    vector<Ciphertext> compare_results, client_input(9), table_value_bits(8), output_values;
+    vector<Ciphertext> compare_results, client_input(8), table_value_bits(8), output_values = {};
     Ciphertext mult_result, table_value_full;
     int i, j, k, n_of_rows;
     string curr_colname, path;
@@ -784,55 +806,46 @@ vector<Ciphertext> select(vector<string> colnames, string tablename, int operati
 
     client_values_file.open("Files/values.txt", ios::binary);
 
+    // É melhor nao dar overwritten porque depois é preciso esse valor dar display no cliente - Amaro
     client_input.at(0).load(context, client_values_file); // Carregar nº completo - para ser overwritten
-    for (i = 1; i < 9; i++) //Bits encriptados apenas. Não necessita do nº completo
+    for (i = 0; i < 8; i++)                               //Bits encriptados apenas. Não necessita do nº completo
     {
         client_input.at(i).load(context, client_values_file);
     }
 
-    for (i = 0; i < colnames.size(); i++){
+    for (i = 0; i < colnames.size(); i++)
+    {
+        //Select column name.
+        curr_colname = colnames.at(i);
         
-    
-    // counts number of files inside  column name
-    string comm = ("cd Encrypted_Database/");
-    comm.append(tablename);
-    comm.append("/");
-    comm.append(colnames.at(i));
-    comm.append("\n ls | wc -l");
-    const char *run_comm = comm.c_str();
-    number_of_rows = system(run_comm);
-    //Select column name.
-    curr_colname = colnames.at(i);
-      for (j = 0; j < number_of_rows; j++)
-      {
-        
-        //Get Table values
-        path = ("Encrypted_Database/");
-        path.append(tablename);
-        path.append("/");
-        path.append(curr_colname);
-        path.append("/");
-        path.append(to_string(j));
-        path.append(".txt");
-
-        table_value_file.open(path, ios::binary);
-
-        table_value_full.load(context, table_value_file); // Primeiro valor completo
-        for (k = 0; k < 8; k++) //Depois bit a bit
+        vector<string> row_names = get_files_names(tablename, curr_colname);
+        for (j = 0; j < row_names.size(); j++)
         {
-            table_value_bits.at(k).load(context, table_value_file);
+            //Get Table values
+            path = ("Encrypted_Database/");
+            path.append(tablename);
+            path.append("/");
+            path.append(row_names.at(j)); // Não é preciso pôr o nome da coluna porque já vem no row_names - Amaro
+            cout << "Row names: " << row_names.at(j) << endl;
+
+            table_value_file.open(path, ios::binary);
+
+            table_value_full.load(context, table_value_file); // Primeiro valor completo
+            for (k = 0; k < 8; k++)                           //Depois bit a bit
+            {
+                table_value_bits.at(k).load(context, table_value_file);
+            }
+
+            table_value_file.close();
+            
+            compare_results = Full_comparator(client_input, table_value_bits, relin_keys, &evaluator);
+
+            evaluator.multiply(compare_results.at(operation), table_value_full, mult_result);
+            output_values.insert(output_values.end(), mult_result);
+
+            //Empty path String
+            path.clear();
         }
-
-        table_value_file.close();
-
-        compare_results = Full_comparator(client_input, table_value_bits, relin_keys, &evaluator);
-
-        evaluator.multiply(compare_results.at(operation), table_value_full, mult_result);
-        output_values.push_back(mult_result);
-
-        //Empty path String
-        path.clear();
-      }
     }
 
     //Escrever mult result para ficheiro
@@ -847,8 +860,8 @@ vector<Ciphertext> select(vector<string> colnames, string tablename, int operati
     result_file_2.open("Files/query_result_2.txt", ios::binary);
     // store number of values that is being sent in file
     result_file_2 << to_string(output_values.size()) << endl;
+    cout << "size of output files: " << output_values.size() << endl;
     result_file_2.close();
-
 
     return output_values;
     //PERGUNTA
@@ -945,10 +958,10 @@ int main(int argc, char *argv[])
         // executes the decrypted query with homomorphic encrypted values
         query_result = execute_query(message_decoded, client_name);
         // encrypt with session key and move to client folder
-        if(query_result.compare("SELECT") == 0 && false) encode_message(query_result, client_name);
+        if (query_result.compare("SELECT") == 0)
+            encode_message(query_result, client_name);
 
         send_reply(newFD, "finished");
     }
     /*********************************** accept messages **********************************/
 }
-

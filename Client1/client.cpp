@@ -95,12 +95,12 @@ void decode_message(int query_num)
     string reply_decoded;
 
     // descrypt message with session key
-    if(query_num == 4) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Files/query_result.enc -out Files/query_result.txt -pass file:./session.key\n");
-    if(query_num == 4) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Files/query_result_2.enc -out Files/query_result_2.txt -pass file:./session.key\n");
+    if(query_num == 4 || query_num == 5) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Files/query_result.enc -out Files/query_result.txt -pass file:./session.key\n");
+    if(query_num == 4 || query_num == 5) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Files/query_result_2.enc -out Files/query_result_2.txt -pass file:./session.key\n");
 
     // remove unnecessary files: session key and encrypted query result
     system("rm session.key");
-    if(query_num == 4) system("rm Files/query_result.enc Files/query_result_2.enc");
+    if(query_num == 4 || query_num == 5) system("rm Files/query_result.enc Files/query_result_2.enc");
 }
 
 /******************************************** SEAL functions ************************************************/
@@ -570,13 +570,14 @@ int main(int argc, char *argv[])
 
         message = create_query(input_opt, &val_to_encrypt, &query_num);
         while (message.compare("erro") == 0){message = create_query(input_opt, &val_to_encrypt, &query_num);}
-  
+        
         // flag = 0 if there are no values to encrypt else flag = 1
         if(val_to_encrypt.size() == 0) val_flag = 0;
         else val_flag = 1;
 
         // only encodes values if there is values to encode
         if(val_flag) encode_values(val_to_encrypt);
+
         encode_message(message, val_flag);
 
         reply = connect_to_server("Client1");
@@ -588,7 +589,7 @@ int main(int argc, char *argv[])
 
         decode_message(query_num);
 
-        if(query_num == 4) decode_values();
+        if(query_num == 4 || query_num == 5) decode_values();
     }
     return EXIT_SUCCESS;
 }

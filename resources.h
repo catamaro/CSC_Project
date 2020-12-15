@@ -10,9 +10,7 @@
 #include <vector>
 #include <string>
 #include <chrono>
-#include <random>
 #include <thread>
-#include <mutex>
 #include <memory>
 #include <limits>
 #include <algorithm>
@@ -24,6 +22,10 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>  
 #include <sstream>
+
+#include <cstdio>
+#include <stdexcept>
+#include <array>
 
 #define PORT 5000
 
@@ -66,6 +68,7 @@ int create_table(string message);
 vector<string> check_query_names(string message_decoded, string *tablename, string command,int *row_num, vector<string> *colnames_op, vector<int> *logic, vector<int> *operators);
 string execute_query(string message_decoded, string client_name);
 void send_reply(int newFD, string reply);
+vector<string> get_files_names(string tablename, string colname);
 
 void delete_line(int row_num, string tablename);
 void insert_values(int n_value, string tablename, vector<string> colname);
@@ -74,6 +77,19 @@ vector<Ciphertext> select(vector<string> colnames, string tablename, int operati
 vector<Ciphertext> GetTableVal(vector<string> colnames, string tablename, int row_num);
 vector<Ciphertext> GetClientInputVal(SEALContext context);
 
+
+std::string exec(const char* cmd) {
+    std::array<char, 128> buffer;
+    std::string result;
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd, "r"), pclose);
+    if (!pipe) {
+        throw std::runtime_error("popen() failed!");
+    }
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+    return result;
+}
 
 string load_string(string path)
 {
