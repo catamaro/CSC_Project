@@ -28,8 +28,6 @@
 #include <stdexcept>
 #include <array>
 
-#define PORT 5001
-
 using namespace std;
 using namespace seal;
 
@@ -64,9 +62,9 @@ void decode_values_message(string name);
 
 void create_database();
 int check_exists_table(string name);
-void create_clients_file(string name);
+void create_clients_file(string name, string client_name);
 void create_column(string name, string column);
-int create_table(string message);
+int create_table(string message, string client_name);
 vector<string> check_query_names(string message_decoded, string *tablename, string command,int *row_num, vector<string> *colnames_op, vector<int> *logic, vector<int> *operators);
 string execute_query(string message_decoded, string client_name);
 void send_reply(int newFD, string reply);

@@ -33,9 +33,9 @@ int verify_client_sign(string name)
 {
     bool validation;
     // extract client's public key from certificate
-    string comm("openssl x509 -pubkey -noout -in Files/");
+    string comm("openssl x509 -pubkey -noout -in Messages/");
     comm.append(name);
-    comm.append("-cert.crt > Files/");
+    comm.append("-cert.crt > Messages/");
     comm.append(name);
     comm.append("-publ.pem\n\n");
 
@@ -43,22 +43,20 @@ int verify_client_sign(string name)
     system(run_comm);
 
     // verify encrypted session key signature
-    comm = "openssl dgst -sha256 -verify Files/";
+    comm = "openssl dgst -sha256 -verify Messages/";
     comm.append(name);
-    comm.append("-publ.pem -signature Files/");
+    comm.append("-publ.pem -signature Messages/");
     comm.append(name);
-    comm.append("-sign.sha256 Files/");
-    comm.append(name);
-    comm.append("-session.key.enc > Files/verified.txt\n");
+    comm.append("-sign.sha256 Messages/session.key.enc > Messages/verified.txt\n");
 
     const char *run_comm2 = comm.c_str();
     system(run_comm2);
 
     // load verified.txt to confirm signature
-    string sign_check = load_string("Files/verified.txt");
+    string sign_check = load_string("Messages/verified.txt");
     cout << "\nSignature Validation: " << sign_check << endl;
 
-    system("rm Files/verified.txt\n");
+    system("rm Messages/verified.txt\n");
 
     if (sign_check.compare("Verified OK\n") == 0)
     {
@@ -72,16 +70,14 @@ int verify_client_sign(string name)
     }
 
     // remove unecessary files - encrypted sesion key
-    comm = "rm Files/";
-    comm.append(name);
-    comm.append("-session.key.enc ");
-    comm.append("Files/");
+    comm = "rm Messages/session.key.enc ";
+    comm.append("Messages/");
     comm.append(name);
     comm.append("-sign.sha256 ");
-    comm.append("Files/");
+    comm.append("Messages/");
     comm.append(name);
     comm.append("-cert.crt ");
-    comm.append("Files/");
+    comm.append("Messages/");
     comm.append(name);
     comm.append("-publ.pem ");
 
@@ -91,27 +87,34 @@ int verify_client_sign(string name)
     return validation;
 }
 
-string decode_query(string name)
+string decode_query(string *client_name)
 {
-
+    string name;
     // descrypt session key with server's private key
-    string comm("openssl rsautl -decrypt -inkey Files/Server-priv.pem -in Files/");
-    comm.append(name);
-    comm.append("-session.key.enc -out session.key\n");
+    system("openssl rsautl -decrypt -inkey Files/Server-priv.pem -in Messages/session.key.enc -out session.key\n");
+    // descrypt session key with server's private key
+    system("openssl enc -d -aes-256-cbc -pbkdf2 -in Messages/name.enc -out Messages/name.txt -pass file:./session.key\n");
 
-    const char *run_comm = comm.c_str();
-    system(run_comm);
+    *client_name = load_string("Messages/name.txt");
+    system("rm Messages/name.txt Messages/name.enc");
+    
+    // remove \n in the end
+    if (!(*client_name).empty())
+        (*client_name) = (*client_name).substr(0, 7);
 
+    cout << (*client_name) << endl;
+
+    name = *client_name;
     // descrypt message with session key
-    comm = "openssl enc -d -aes-256-cbc -pbkdf2 -in Files/";
+    string comm("openssl enc -d -aes-256-cbc -pbkdf2 -in Messages/");
     comm.append(name);
-    comm.append("-message.enc -out Files/message.txt -pass file:./session.key\n");
+    comm.append("-message.enc -out Messages/message.txt -pass file:./session.key\n");
 
     const char *run_comm2 = comm.c_str();
     system(run_comm2);
 
     // remove unecessary files - encoded message with session key
-    comm = "rm Files/";
+    comm = "rm Messages/";
     comm.append(name);
     comm.append("-message.enc ");
 
@@ -119,10 +122,10 @@ string decode_query(string name)
     system(run_comm3);
 
     // import message into variable
-    string message_decoded = load_string("Files/message.txt");
+    string message_decoded = load_string("Messages/message.txt");
     cout << "\nMessage decoded: " << message_decoded << endl;
 
-    system("rm Files/message.txt");
+    system("rm Messages/message.txt");
 
     return message_decoded;
 }
@@ -131,33 +134,33 @@ void encode_message(string query_result, string name)
 {
 
     // encrypt query result with session key
-    system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/query_result.txt -out Files/query_result.enc -pass file:./session.key\n");
-    system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/query_result_2.txt -out Files/query_result_2.enc -pass file:./session.key\n");
+    system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Messages/query_result.txt -out Messages/query_result.enc -pass file:./session.key\n");
+    system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Messages/query_result_2.txt -out Messages/query_result_2.enc -pass file:./session.key\n");
 
-    // moves encoded file to client folder
-    string comm("mv Files/query_result.enc Files/query_result_2.enc ../");
+    // moves encoded file to client answers folder
+    string comm("mv Messages/query_result.enc Messages/query_result_2.enc ../");
     comm.append(name);
-    comm.append("/Files\n");
+    comm.append("/Answers\n");
 
     const char *run_comm = comm.c_str();
     system(run_comm);
 
     // remove unnecessary files: session key and plain-text messages
-    system("rm session.key\n rm Files/query_result.txt \n rm Files/query_result_2.txt\n rm Files/values.txt");
+    system("rm session.key Messages/query_result.txt Messages/query_result_2.txt");
 }
 
 void decode_values_message(string name)
 {
     // descrypt message with session key
-    string comm("openssl enc -d -aes-256-cbc -pbkdf2 -in Files/");
+    string comm("openssl enc -d -aes-256-cbc -pbkdf2 -in Messages/");
     comm.append(name);
-    comm.append("-values.enc -out Files/values.txt -pass file:./session.key\n");
+    comm.append("-values.enc -out Messages/values.txt -pass file:./session.key\n");
 
     const char *run_comm2 = comm.c_str();
     system(run_comm2);
 
     // remove unecessary files - encoded message with session key
-    comm = "rm Files/";
+    comm = "rm Messages/";
     comm.append(name);
     comm.append("-values.enc\n");
 
@@ -313,11 +316,11 @@ int check_exists_table(string name)
     }
 }
 
-void create_clients_file(string name)
+void create_clients_file(string name, string client_name)
 {
     string filename("");
     filename.append(name);
-    filename.append("_clients.txt");
+    filename.append("_client.txt");
 
     //directory to create the file
     string path1("/home/catarinamaro/Documents/Técnico/Cripto/CSC_Project/Server/Encrypted_Database/");
@@ -327,8 +330,10 @@ void create_clients_file(string name)
 
     ofstream myfile(path1);
 
-    string data("Clients that have access to this table:");
+    string data("Client that own the table:");
     myfile << data;
+    myfile << "\n";
+    myfile << client_name;
     myfile.close();
 }
 
@@ -360,7 +365,7 @@ void create_column(string name, string column)
     myfile.close();*/
 }
 
-int create_table(string message)
+int create_table(string message, string client_name)
 {
 
     string word = "";
@@ -414,7 +419,7 @@ int create_table(string message)
     check_exists_table(name);
 
     //Creating name of the file that contains clients ID
-    create_clients_file(name);
+    create_clients_file(name, client_name);
 
     //Creating columns
     for (int k = 0; k < colnames.size(); k++)
@@ -542,7 +547,7 @@ string execute_query(string message_decoded, string client_name)
     if (message_decoded.find("CREATE TABLE") == 0)
     {
         cout << "Found CREATE TABLE!" << '\n';
-        create_table(message_decoded);
+        create_table(message_decoded, client_name);
         return "CREATE";
     }
     else if (message_decoded.find("INSERT") == 0)
@@ -683,7 +688,7 @@ void insert_values(int n_value, string tablename, vector<string> colname)
     vector<Ciphertext> value_encrypted(9);
     
     ifstream values_file;
-    values_file.open("Files/values.txt", ios::binary);
+    values_file.open("Messages/values.txt", ios::binary);
 
     string path("Encrypted_Database/");
     path.append(tablename);
@@ -752,7 +757,7 @@ void select_line(string tablename, int row_num)
     Ciphertext value_encrypted;
 
     ofstream result_file;
-    result_file.open("Files/query_result.txt", ios::binary);
+    result_file.open("Messages/query_result.txt", ios::binary);
 
     for (int j = 0; j < col_names.size(); j++)
     {
@@ -774,7 +779,7 @@ void select_line(string tablename, int row_num)
     }
     result_file.close();
 
-    ofstream infile("Files/query_result_2.txt");
+    ofstream infile("Messages/query_result_2.txt");
     // store number of values that is being sent in file
     infile << to_string(col_names.size()) << endl;
     // save column names to send to client
@@ -807,16 +812,15 @@ void select(vector<string> comparation_columns, vector<string> select_columns, s
 
     vector<string> row_names = {}; 
 
-    client_values_file.open("Files/values.txt", ios::binary);
-
-    client_input.at(0).load(context, client_values_file); // Carregar nº completo - para ser overwritten
-    for (int i = 0; i < 8; i++)                               //Bits encriptados apenas. Não necessita do nº completo
-        client_input.at(i).load(context, client_values_file);
+    client_values_file.open("Messages/values.txt", ios::binary);
     
-
     //1 - Ir buscar comparações 
     for (int i = 0; i < comparation_columns.size(); i++) 
     {
+        client_input.at(0).load(context, client_values_file); // Carregar nº completo - para ser overwritten
+        for (int i = 0; i < 8; i++)                               //Bits encriptados apenas. Não necessita do nº completo
+            client_input.at(i).load(context, client_values_file);
+
         //Select column name.
         curr_colname = comparation_columns.at(i);
 
@@ -859,12 +863,10 @@ void select(vector<string> comparation_columns, vector<string> select_columns, s
         
         if (logic.at(0) == 0){ // AND = 0
             tmp_rowcollect = AND(Comparasions_matrix.at(0).at(i), Comparasions_matrix.at(1).at(i), &evaluator);
-            //cout << "Fresh encryption noise budget for degree " << "64" << ": " << decryptor.invariant_noise_budget(tmp_rowcollect) << " bits." << endl;
             evaluator.relinearize_inplace(tmp_rowcollect, relin_keys);
         }
         else if (logic.at(0) == 1){ // OR = 1
             tmp_rowcollect = OR(Comparasions_matrix.at(0).at(i), Comparasions_matrix.at(1).at(i), &evaluator, relin_keys);
-            //cout << "Fresh encryption noise budget for degree " << "64" << ": " << decryptor.invariant_noise_budget(tmp_rowcollect) << " bits." << endl;
         } 
         
         rowsToCollect.push_back(tmp_rowcollect); //Linha 0 inserida na posição 0, 1 em 1...
@@ -910,8 +912,8 @@ void select(vector<string> comparation_columns, vector<string> select_columns, s
     //4 - Escrever mult result para ficheiro
     ofstream result_file, result_file_2;
 
-    result_file.open("Files/query_result.txt", ios::binary);
-    result_file_2.open("Files/query_result_2.txt", ios::binary);
+    result_file.open("Messages/query_result.txt", ios::binary);
+    result_file_2.open("Messages/query_result_2.txt", ios::binary);
 
     // store number of values that is being sent in file
     result_file_2 << to_string(output_values.size()) << endl;
@@ -940,80 +942,30 @@ void select(vector<string> comparation_columns, vector<string> select_columns, s
 
 int main(int argc, char *argv[])
 {
-
-    /************************************ setup socket ************************************/
-
-    struct sockaddr_in local_addr;
-    struct sockaddr_storage client_addr;
-    socklen_t client_addr_size = sizeof(client_addr);
-
-    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd == -1)
-    {
-        perror("socket: ");
-        exit(EXIT_FAILURE);
-    }
-
-    local_addr.sin_family = AF_INET;
-    local_addr.sin_addr.s_addr = INADDR_ANY;
-    local_addr.sin_port = htons(PORT);
-    int err = bind(server_fd, (struct sockaddr *)&local_addr,
-                   sizeof(local_addr));
-    if (err == -1)
-    {
-        perror("bind: ");
-        exit(EXIT_FAILURE);
-    }
-
-    if (listen(server_fd, 5) == -1)
-    {
-        perror("listen: ");
-        exit(EXIT_FAILURE);
-    }
-
-    /************************************ setup socket ************************************/
-
-    /*********************************** accept messages **********************************/
     bool run = true;
-    string client_name(25, ' '); // stores the client name
     string message_decoded, query_result;
+
+    string client_name;
 
     while (run)
     {
-        // accepting messages from clients
-        int newFD = accept(server_fd, (sockaddr *)&client_addr, &client_addr_size);
-        if (newFD == -1)
-        {
-            cerr << "Error while Accepting on socket\n";
-            continue;
+        // check if there are new files on the folder
+        while (run){
+            string check = exec("if    ls -1qA Messages/ | grep -q .; then  ! echo not empty; else  echo empty; fi");
+            if (check.compare("empty\n") != 0) break;
         }
-
-        // receives message that indicates wich client sent files
-        auto bytes_received = recv(newFD, &client_name.front(), client_name.length(), 0);
-        cout << "\nReceived Query from " << client_name << endl;
-
-        // remove \n from message
-        if (!client_name.empty())
-            client_name = client_name.substr(0, 7);
 
         // verify if root certificate is valid
         bool verify = verify_root_CA();
-        if (!verify)
-        {
-            send_reply(newFD, "invalid");
-            continue;
-        }
+        if (!verify) continue;
 
         // decode message and session key and saves it in folder
-        message_decoded = decode_query(client_name); // query decoded
+        message_decoded = decode_query(&client_name); // query decoded
 
         // verify if client's signature is valid
         verify = verify_client_sign(client_name);
-        if (!verify)
-        {
-            send_reply(newFD, "invalid");
-            continue;
-        }
+        if (!verify) continue;
+   
         // creates the directory that will store the tables
         create_database();
         // executes the decrypted query with homomorphic encrypted values
@@ -1022,11 +974,14 @@ int main(int argc, char *argv[])
         if (query_result.compare("SELECT") == 0)
             encode_message(query_result, client_name);
         else if (query_result.compare("FAILURE") == 0){
-            send_reply(newFD, "failure");
+            string check = exec("if    ls -1qA Messages/ | grep -q .; then  ! echo not empty; else  echo empty; fi");
+            if (check.compare("empty\n") != 0) system("rm Messages/values.txt");
             continue;
-        }
+        } 
 
-        send_reply(newFD, "finished");
+        string check = exec("if    ls -1qA Messages/ | grep -q .; then  ! echo not empty; else  echo empty; fi");
+        if (check.compare("empty\n") != 0) system("rm Messages/values.txt");
+        
     }
     /*********************************** accept messages **********************************/
 }

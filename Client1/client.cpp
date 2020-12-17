@@ -14,16 +14,24 @@ void encode_message(string message, int val_flag)
 
     infile.close();
 
+    // create file with name of client to be encrypted
+    ofstream infile2("Files/name.txt");
+
+    infile2 << "Client1" << endl;
+
+    infile2.close();
+
     // extract server's public key from certificate
     system("openssl x509 -pubkey -noout -in Files/Server-cert.crt > Files/Server-publ.pem\n");
     // generate random password file
     system("openssl rand -base64 32 > session.key\n");
     // session key encrypted with server's public key
-    system("openssl rsautl -encrypt -pubin -inkey Files/Server-publ.pem -in session.key -out Files/Client1-session.key.enc\n");
+    system("openssl rsautl -encrypt -pubin -inkey Files/Server-publ.pem -in session.key -out Files/session.key.enc\n");
     // session key signed with client's private key
-    system("openssl dgst -sha256 -sign Files/Client1-priv.pem -out Files/Client1-sign.sha256 Files/Client1-session.key.enc");
+    system("openssl dgst -sha256 -sign Files/Client1-priv.pem -out Files/Client1-sign.sha256 Files/session.key.enc");
     // encrypt message with session key
     system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/message.txt -out Files/Client1-message.enc -pass file:./session.key\n");
+    system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/name.txt -out Files/name.enc -pass file:./session.key\n");
     if(val_flag) system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/values.txt -out Files/Client1-values.enc -pass file:./session.key\n");
 
     // remove unnecessary files
@@ -31,11 +39,12 @@ void encode_message(string message, int val_flag)
     if(val_flag) system("rm Files/values.txt\n");
 
     // moves encoded session-key, encoded message and certificate to server's folder
-    system("mv Files/Client1-message.enc ../Server/Files\n");
-    if(val_flag) system("mv Files/Client1-values.enc ../Server/Files\n");
-    system("mv Files/Client1-session.key.enc ../Server/Files\n");
-    system("mv Files/Client1-sign.sha256 ../Server/Files\n");
-    system("cp Files/Client1-cert.crt ../Server/Files\n");
+    system("mv Files/Client1-message.enc ../Server/Messages\n");
+    if(val_flag) system("mv Files/Client1-values.enc ../Server/Messages\n");
+    system("mv Files/session.key.enc ../Server/Messages\n");
+    system("mv Files/name.enc ../Server/Messages\n");
+    system("mv Files/Client1-sign.sha256 ../Server/Messages\n");
+    system("cp Files/Client1-cert.crt ../Server/Messages\n");
 }
 // function to verify files in client folder, certificates and keys
 bool verify_documents()
@@ -95,12 +104,12 @@ void decode_message(int query_num)
     string reply_decoded;
 
     // descrypt message with session key
-    if(query_num == 4 || query_num == 5 || query_num == 6) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Files/query_result.enc -out Files/query_result.txt -pass file:./session.key\n");
-    if(query_num == 4 || query_num == 5 || query_num == 6) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Files/query_result_2.enc -out Files/query_result_2.txt -pass file:./session.key\n");
+    if(query_num == 4 || query_num == 5 || query_num == 6) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Answers/query_result.enc -out Answers/query_result.txt -pass file:./session.key\n");
+    if(query_num == 4 || query_num == 5 || query_num == 6) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Answers/query_result_2.enc -out Answers/query_result_2.txt -pass file:./session.key\n");
 
     // remove unnecessary files: session key and encrypted query result
     system("rm session.key");
-    if(query_num == 4 || query_num == 5 || query_num == 6) system("rm Files/query_result.enc Files/query_result_2.enc");
+    if(query_num == 4 || query_num == 5 || query_num == 6) system("rm Answers/query_result.enc Answers/query_result_2.enc");
 }
 
 /******************************************** SEAL functions ************************************************/
@@ -262,7 +271,7 @@ void decode_values(){
     int plain_dec;
 
     // file with number of values returned and column names
-    ifstream query_result_2("Files/query_result_2.txt");
+    ifstream query_result_2("Answers/query_result_2.txt");
     string col_name;
 
     getline(query_result_2, col_name);
@@ -270,7 +279,7 @@ void decode_values(){
 
     //  files with encrypted values
     ifstream values_file;
-    values_file.open("Files/query_result.txt", ios::binary);
+    values_file.open("Answers/query_result.txt", ios::binary);
     string result_string("");
 
     cout << "number of values sent " << col_name << endl;
@@ -281,57 +290,14 @@ void decode_values(){
         
         plain_dec = hex_to_dec(plain_hex);
         getline(query_result_2, col_name);
-        
+
         if (plain_dec != 0) cout << col_name << " " << to_string(plain_dec) << endl;
     }
 
-    system("rm Files/query_result.txt Files/query_result_2.txt");
+    system("rm Answers/query_result.txt Answers/query_result_2.txt");
 }
 
 /***************************************** Client Aux Functions *********************************************/
-// function to connect to server socket
-string connect_to_server(string message)
-{
-
-    struct sockaddr_in server_addr;
-    string reply(10, ' ');
-
-    int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock_fd == -1)
-    {
-        perror("socket ");
-        exit(EXIT_FAILURE);
-    }
-
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(PORT);
-    int err = inet_aton("127.0.0.1", &server_addr.sin_addr);
-    if (err == 0)
-    {
-        perror("aton ");
-        exit(EXIT_FAILURE);
-    }
-    // setup of server - creation of server connection to server
-    err = connect(sock_fd, (const struct sockaddr *)&server_addr,
-                  sizeof(server_addr));
-
-    if (err == -1)
-    {
-        perror("conn ");
-        exit(EXIT_FAILURE);
-    }
-    cout << "\nJust connected to the server" << endl;
-
-    auto bytes_sent = send(sock_fd, &message.front(), message.size(), 0);
-
-    cout << "\nClient sent: " << message << endl;
-
-    auto bytes_received = recv(sock_fd, &reply.front(), reply.size(), 0);
-
-    cout << "\nClient received: " << reply << endl;
-
-    return reply;
-}
 // function to print possible query commands
 void print_commands()
 {
@@ -593,11 +559,9 @@ int main(int argc, char *argv[])
 
         encode_message(message, val_flag);
 
-        reply = connect_to_server("Client1");
-        if (reply.compare("invalid   ") == 0)
-        {
-            cout << "Problem authenticating certificates. Message was not considered" << endl;
-            continue;
+        while (run && (query_num == 4 || query_num == 5 || query_num == 6) ){
+            string check = exec("if    ls -1qA Answers/ | grep -q .; then  ! echo not empty; else  echo empty; fi");
+            if (check.compare("empty\n") != 0) break;
         }
 
         decode_message(query_num);
