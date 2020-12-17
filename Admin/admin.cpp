@@ -15,17 +15,18 @@ void generate_root_CA()
 void install_db_key(string name){
     cout << "\nInstalling Homomorphic Keys\n";
 
-    string db_key("cd homomorphic_keys\n cp -t ../../");
-    db_key.append(name);//Pasta do cliente
-    db_key.append("/Files/ DB_private.key DB_public.key");
-
-    const char * mov_db_key = db_key.c_str();
-    system(mov_db_key);
-
     if(name.compare("Server") == 0){
         string db_key("cd homomorphic_keys\n cp -t ../../");
         db_key.append(name);//Pasta do cliente
         db_key.append("/Files/ DB_relin.key");
+
+        const char * mov_db_key = db_key.c_str();
+        system(mov_db_key);
+    }
+    else{
+        string db_key("cd homomorphic_keys\n cp -t ../../");
+        db_key.append(name);//Pasta do cliente
+        db_key.append("/Files/ DB_private.key DB_public.key");
 
         const char * mov_db_key = db_key.c_str();
         system(mov_db_key);
@@ -68,16 +69,44 @@ void generate_db_key(){
 
 void install_CA_certificate(string name)
 {
-    
     // The root CA certificate
-    string rca("cd root_CA\ncp root_ca.crt ~/Documents/Técnico/Cripto/CSC_Project/");
+    string rca("cd root_CA\ncp root_ca.crt ../../");
     rca.append(name);
     rca.append("/");
     rca.append("Files/");
 
     const char * root_ca = rca.c_str();
-
     system(root_ca);
+}
+
+void create_directories(string name){
+    // Create Files directory
+    string make_dir("mkdir ../");
+    make_dir.append(name);
+    make_dir.append("/");
+    make_dir.append("Files");
+
+    const char * run_comm = make_dir.c_str();
+    system(run_comm);
+
+    if(name.compare("Server") == 0){
+        make_dir = "mkdir ../";
+        make_dir.append(name);
+        make_dir.append("/");
+        make_dir.append("Messages");
+
+        const char * comm = make_dir.c_str();
+        system(comm);
+    }
+    else{
+        make_dir = "mkdir ../";
+        make_dir.append(name);
+        make_dir.append("/");
+        make_dir.append("Answers");
+
+        const char * comm1 = make_dir.c_str();
+        system(comm1);
+    }
 }
 
 void generate_certificate(string name){
@@ -153,6 +182,10 @@ int main()
     generate_root_CA();
 
     generate_db_key();
+
+    create_directories("Client1");
+    create_directories("Client2");
+    create_directories("Server");
 
     install_db_key("Client1");
     install_db_key("Client2");

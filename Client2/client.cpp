@@ -192,10 +192,6 @@ vector<int> decrypt_binaries(vector<Ciphertext> results)
         }
     }
 
-    cout << "A=B: " << int_results.at(0) << "\n";
-    cout << "A>B: " << int_results.at(1) << "\n";
-    cout << "A<B: " << int_results.at(2) << "\n";
-
     return int_results;
 }
 // function to encrypt values with Homomorphic Database Key
@@ -281,8 +277,6 @@ void decode_values(){
     ifstream values_file;
     values_file.open("Answers/query_result.txt", ios::binary);
     string result_string("");
-
-    cout << "number of values sent " << col_name << endl;
 
     for(int i=0; i<num_values; i++){
         full_encrypt.load(context, values_file);

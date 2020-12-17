@@ -99,17 +99,13 @@ bool verify_documents()
     return true;
 }
 // function to decode message with private and public key
-void decode_message(int query_num)
+void decode_message()
 {
-    string reply_decoded;
-
     // descrypt message with session key
-    if(query_num == 4 || query_num == 5 || query_num == 6) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Answers/query_result.enc -out Answers/query_result.txt -pass file:./session.key\n");
-    if(query_num == 4 || query_num == 5 || query_num == 6) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Answers/query_result_2.enc -out Answers/query_result_2.txt -pass file:./session.key\n");
+    system("openssl enc -d -aes-256-cbc -pbkdf2 -in Answers/query_result.enc -out Answers/query_result.txt -pass file:./session.key\n");
+    system("openssl enc -d -aes-256-cbc -pbkdf2 -in Answers/query_result_2.enc -out Answers/query_result_2.txt -pass file:./session.key\n");
 
-    // remove unnecessary files: session key and encrypted query result
-    system("rm session.key");
-    if(query_num == 4 || query_num == 5 || query_num == 6) system("rm Answers/query_result.enc Answers/query_result_2.enc");
+    system("rm Answers/query_result.enc Answers/query_result_2.enc");
 }
 
 /******************************************** SEAL functions ************************************************/
@@ -191,10 +187,6 @@ vector<int> decrypt_binaries(vector<Ciphertext> results)
             int_results.at(i) = stoi(comparasion.at(i), nullptr, 10);
         }
     }
-
-    cout << "A=B: " << int_results.at(0) << "\n";
-    cout << "A>B: " << int_results.at(1) << "\n";
-    cout << "A<B: " << int_results.at(2) << "\n";
 
     return int_results;
 }
@@ -281,8 +273,6 @@ void decode_values(){
     ifstream values_file;
     values_file.open("Answers/query_result.txt", ios::binary);
     string result_string("");
-
-    cout << "number of values sent " << col_name << endl;
 
     for(int i=0; i<num_values; i++){
         full_encrypt.load(context, values_file);
@@ -547,7 +537,9 @@ int main(int argc, char *argv[])
         cin >> input_opt;
 
         val_to_encrypt = {};
+
         message = create_query(input_opt, &val_to_encrypt, &query_num);
+        cout << "Creating query..." << endl;
         while (message.compare("erro") == 0){message = create_query(input_opt, &val_to_encrypt, &query_num);}
         
         // flag = 0 if there are no values to encrypt else flag = 1
@@ -555,18 +547,31 @@ int main(int argc, char *argv[])
         else val_flag = 1;
 
         // only encodes values if there is values to encode
-        if(val_flag) encode_values(val_to_encrypt);
+        if(val_flag){
+            cout << "Encrypting query values..." << endl;
+            encode_values(val_to_encrypt);
+        } 
 
+        cout << "Encrypting, Signing and Sending query..." << endl;
         encode_message(message, val_flag);
-
-        while (run && (query_num == 4 || query_num == 5 || query_num == 6) ){
-            string check = exec("if    ls -1qA Answers/ | grep -q .; then  ! echo not empty; else  echo empty; fi");
-            if (check.compare("empty\n") != 0) break;
+        
+        if (query_num == 4 || query_num == 5 || query_num == 6){
+            cout << "Waiting for server answer..." << endl;
+            while (run){
+                string check = exec("if    ls -1qA Answers/ | grep -q .; then  ! echo not empty; else  echo empty; fi");
+                if (check.compare("empty\n") != 0) break;
+            }
         }
+        
+        if(query_num == 4 || query_num == 5 || query_num == 6){
+            cout << "Decrypting query answer..." << endl;
+            decode_message();    
+            cout << "Decrypting query values..." << endl;
+            decode_values();
+        } 
 
-        decode_message(query_num);
-
-        if(query_num == 4 || query_num == 5 || query_num == 6) decode_values();
+        cout << "Deleting Session Key..." << endl;
+        system("rm session.key");
     }
     return EXIT_SUCCESS;
 }
