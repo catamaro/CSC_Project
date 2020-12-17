@@ -95,12 +95,12 @@ void decode_message(int query_num)
     string reply_decoded;
 
     // descrypt message with session key
-    if(query_num == 4 || query_num == 5) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Files/query_result.enc -out Files/query_result.txt -pass file:./session.key\n");
-    if(query_num == 4 || query_num == 5) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Files/query_result_2.enc -out Files/query_result_2.txt -pass file:./session.key\n");
+    if(query_num == 4 || query_num == 5 || query_num == 6) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Files/query_result.enc -out Files/query_result.txt -pass file:./session.key\n");
+    if(query_num == 4 || query_num == 5 || query_num == 6) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Files/query_result_2.enc -out Files/query_result_2.txt -pass file:./session.key\n");
 
     // remove unnecessary files: session key and encrypted query result
     system("rm session.key");
-    if(query_num == 4 || query_num == 5) system("rm Files/query_result.enc Files/query_result_2.enc");
+    if(query_num == 4 || query_num == 5 || query_num == 6) system("rm Files/query_result.enc Files/query_result_2.enc");
 }
 
 /******************************************** SEAL functions ************************************************/
@@ -199,6 +199,14 @@ void encode_values(vector<string> values)
     parms.set_plain_modulus(64);
     SEALContext context(parms);
 
+    ifstream private_key_file;
+    SecretKey private_key;
+
+    private_key_file.open("Files/DB_private.key", ios::binary);
+    private_key.load(context, private_key_file);
+
+    Decryptor decryptor(context, private_key);
+
     ifstream public_key_file;
     PublicKey public_key;
 
@@ -250,9 +258,8 @@ void decode_values(){
     Decryptor decryptor(context, private_key);
 
     Ciphertext full_encrypt;
-    Plaintext plain_number;
-    vector<Ciphertext> binary_encrypt(8);
-    vector<Plaintext> plain_binary(8);
+    Plaintext plain_hex;
+    int plain_dec;
 
     // file with number of values returned and column names
     ifstream query_result_2("Files/query_result_2.txt");
@@ -266,24 +273,19 @@ void decode_values(){
     values_file.open("Files/query_result.txt", ios::binary);
     string result_string("");
 
+    cout << "number of values sent " << col_name << endl;
+
     for(int i=0; i<num_values; i++){
         full_encrypt.load(context, values_file);
-        decryptor.decrypt(full_encrypt, plain_number);
+        decryptor.decrypt(full_encrypt, plain_hex);
+        
+        plain_dec = hex_to_dec(plain_hex);
         getline(query_result_2, col_name);
-
-        auto result_string1 = plain_number.to_string();
-        cout << col_name << " " << result_string1 << endl;
-        for(int i=0; i<8; i++){
-            binary_encrypt.at(i).load(context, values_file);
-            decryptor.decrypt(binary_encrypt.at(i), plain_binary.at(i));
-
-            result_string.insert(0, plain_binary.at(i).to_string());
-            if( i == 7){
-                cout << "binary: " << result_string << endl;
-                result_string = "";
-            }
-        }
+        
+        if (plain_dec != 0) cout << col_name << " " << to_string(plain_dec) << endl;
     }
+
+    system("rm Files/query_result.txt Files/query_result_2.txt");
 }
 
 /***************************************** Client Aux Functions *********************************************/
@@ -540,6 +542,16 @@ string create_query(int input_opt, vector<string> *val_to_encrypt, int *query_nu
     return comm;
 }
 
+int hex_to_dec(Plaintext hexadecimal){
+    int decimal;
+    
+    std::stringstream ss;
+    ss  <<  hexadecimal.to_string(); // std::string hex_value
+    ss >> hex >> decimal; //int decimal_value
+
+    return decimal;
+}
+
 /********************************************* Client Main **************************************************/
 
 int main(int argc, char *argv[])
@@ -568,6 +580,7 @@ int main(int argc, char *argv[])
         cout << "Construct Query (0), Input by Hand (1): ";
         cin >> input_opt;
 
+        val_to_encrypt = {};
         message = create_query(input_opt, &val_to_encrypt, &query_num);
         while (message.compare("erro") == 0){message = create_query(input_opt, &val_to_encrypt, &query_num);}
         
@@ -589,7 +602,7 @@ int main(int argc, char *argv[])
 
         decode_message(query_num);
 
-        if(query_num == 4 || query_num == 5) decode_values();
+        if(query_num == 4 || query_num == 5 || query_num == 6) decode_values();
     }
     return EXIT_SUCCESS;
 }

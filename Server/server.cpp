@@ -31,7 +31,7 @@ bool verify_root_CA()
 
 int verify_client_sign(string name)
 {
-
+    bool validation;
     // extract client's public key from certificate
     string comm("openssl x509 -pubkey -noout -in Files/");
     comm.append(name);
@@ -54,14 +54,6 @@ int verify_client_sign(string name)
     const char *run_comm2 = comm.c_str();
     system(run_comm2);
 
-    // remove unecessary files - encrypted sesion key
-    comm = "rm Files/";
-    comm.append(name);
-    comm.append("-session.key.enc");
-
-    const char *run_comm3 = comm.c_str();
-    system(run_comm3);
-
     // load verified.txt to confirm signature
     string sign_check = load_string("Files/verified.txt");
     cout << "\nSignature Validation: " << sign_check << endl;
@@ -71,13 +63,32 @@ int verify_client_sign(string name)
     if (sign_check.compare("Verified OK\n") == 0)
     {
         cout << "\nSignature is valid!" << endl;
-        return true;
+        validation = true;
     }
     else
     {
         cout << "\nerror: Signature not valid! Message will not be considered" << endl;
-        return false;
+        validation =  false;
     }
+
+    // remove unecessary files - encrypted sesion key
+    comm = "rm Files/";
+    comm.append(name);
+    comm.append("-session.key.enc ");
+    comm.append("Files/");
+    comm.append(name);
+    comm.append("-sign.sha256 ");
+    comm.append("Files/");
+    comm.append(name);
+    comm.append("-cert.crt ");
+    comm.append("Files/");
+    comm.append(name);
+    comm.append("-publ.pem ");
+
+    const char *run_comm3 = comm.c_str();
+    system(run_comm3);
+    
+    return validation;
 }
 
 string decode_query(string name)
@@ -102,7 +113,7 @@ string decode_query(string name)
     // remove unecessary files - encoded message with session key
     comm = "rm Files/";
     comm.append(name);
-    comm.append("-message.enc\n");
+    comm.append("-message.enc ");
 
     const char *run_comm3 = comm.c_str();
     system(run_comm3);
@@ -110,6 +121,8 @@ string decode_query(string name)
     // import message into variable
     string message_decoded = load_string("Files/message.txt");
     cout << "\nMessage decoded: " << message_decoded << endl;
+
+    system("rm Files/message.txt");
 
     return message_decoded;
 }
@@ -130,7 +143,7 @@ void encode_message(string query_result, string name)
     system(run_comm);
 
     // remove unnecessary files: session key and plain-text messages
-    system("rm session.key\n rm Files/query_result.txt \n rm Files/query_result_2.txt");
+    system("rm session.key\n rm Files/query_result.txt \n rm Files/query_result_2.txt\n rm Files/values.txt");
 }
 
 void decode_values_message(string name)
@@ -154,38 +167,39 @@ void decode_values_message(string name)
 
 /******************************************** SEAL functions ************************************************/
 
-Ciphertext NOT(Ciphertext input, Evaluator *eval)
+Ciphertext NOT (Ciphertext input, Evaluator* eval)
 {
-    int i = 1;
-    Ciphertext output;
-    Plaintext i_plain(to_string(i));
-    (*eval).negate_inplace(input);
-    (*eval).add_plain(input, i_plain, output);
-    //     Nº -> Simétrico -> +1
-    // Caso A: 1 -> -1 -> 0
-    // Caso B: 0 -> 0 -> 1
+  int i=1;
+  Ciphertext output;
+  Plaintext i_plain(to_string(i));
+  (*eval).negate_inplace(input);
+  (*eval).add_plain(input, i_plain, output);
+  //     Nº -> Simétrico -> +1
+  // Caso A: 1 -> -1 -> 0
+  // Caso B: 0 -> 0 -> 1
 
-    return output;
+
+  return output;
 }
 
 Ciphertext AND(Ciphertext inA, Ciphertext inB, Evaluator *eval) /*Should be single bits - effectively a multiplication*/
 {
-    Ciphertext mult_result;
-    (*eval).multiply(inA, inB, mult_result);
+  Ciphertext mult_result;
+  (*eval).multiply(inA, inB, mult_result);
 
-    return mult_result;
+  return mult_result;
 }
 
 Ciphertext OR(Ciphertext inA, Ciphertext inB, Evaluator *eval, RelinKeys relin_keys)
 {
-    Ciphertext or_result, sum_result, and_result;
+  Ciphertext or_result, sum_result, and_result;
 
-    (*eval).add(inA, inB, sum_result);
-    and_result = AND(inA, inB, eval);
-    (*eval).relinearize_inplace(and_result, relin_keys);
-    (*eval).sub(sum_result, and_result, or_result);
+  (*eval).add(inA, inB, sum_result);
+  and_result = AND(inA, inB, eval);
+  (*eval).relinearize_inplace(and_result, relin_keys);
+  (*eval).sub(sum_result, and_result, or_result);
 
-    /*Soma de 2 números representando bits mas efetivamente decimais.
+  /*Soma de 2 números representando bits mas efetivamente decimais.
   Não existe soma lógica - adaptação de soma e multiplicação aritméticass
   | A | B | Soma | Mult (AND) | Soma-mult = OR
   | 0 | 0 |  0   |     0      |        0
@@ -193,59 +207,59 @@ Ciphertext OR(Ciphertext inA, Ciphertext inB, Evaluator *eval, RelinKeys relin_k
   | 1 | 0 |  1   |     0      |        1
   | 1 | 1 |  2   |     1      |        1  */
 
-    return or_result;
+  return or_result;
 }
 
-vector<Ciphertext> bit_Comparator(Ciphertext inA, Ciphertext inB, vector<Ciphertext> rolling, RelinKeys relin_keys, Evaluator *eval)
+vector <Ciphertext> bit_Comparator (Ciphertext inA, Ciphertext inB, vector <Ciphertext> rolling, RelinKeys relin_keys, Evaluator* eval)
 {
-    Ciphertext B_greater_A, A_greater_B, A_equal_B;
+  Ciphertext B_greater_A, A_greater_B, A_equal_B;
 
-    B_greater_A = AND(NOT(inA, eval), inB, eval);
-    (*eval).relinearize_inplace(B_greater_A, relin_keys);
 
-    A_greater_B = AND(inA, NOT(inB, eval), eval);
-    (*eval).relinearize_inplace(A_greater_B, relin_keys);
+  B_greater_A = AND(NOT(inA, eval), inB, eval);
+  (*eval).relinearize_inplace(B_greater_A, relin_keys);
 
-    A_equal_B = NOT(OR(A_greater_B, B_greater_A, eval, relin_keys), eval);
+  A_greater_B = AND(inA, NOT(inB, eval), eval);
+  (*eval).relinearize_inplace(A_greater_B, relin_keys);
 
-    if (rolling.empty()) /*First numbers*/
-    {
-        rolling.push_back(A_equal_B);   //rolling[0]
-        rolling.push_back(A_greater_B); //rolling[1]
-        rolling.push_back(B_greater_A); //rolling[2]
-    }
-    else
-    {
-        rolling.at(0) = AND(A_equal_B, rolling.at(0), eval);
-        (*eval).relinearize_inplace(rolling.at(0), relin_keys);
-        rolling.at(1) = AND(OR(A_greater_B, rolling.at(1), eval, relin_keys), NOT(rolling.at(2), eval), eval);
-        (*eval).relinearize_inplace(rolling.at(1), relin_keys);
-        rolling.at(2) = AND(OR(B_greater_A, rolling.at(2), eval, relin_keys), NOT(rolling.at(1), eval), eval);
-        (*eval).relinearize_inplace(rolling.at(2), relin_keys);
-    }
+  A_equal_B = NOT(OR(A_greater_B, B_greater_A, eval, relin_keys), eval);
 
-    return rolling;
+  if (rolling.empty()) /*First numbers*/
+  {
+      rolling.push_back(A_equal_B); //rolling[0]
+      rolling.push_back(A_greater_B); //rolling[1]
+      rolling.push_back(B_greater_A); //rolling[2]
+  }
+  else{
+      rolling.at(0) = AND(A_equal_B, rolling.at(0), eval);
+      (*eval).relinearize_inplace(rolling.at(0), relin_keys);
+      rolling.at(1) = AND(OR(A_greater_B, rolling.at(1), eval, relin_keys), NOT(rolling.at(2), eval), eval);
+      (*eval).relinearize_inplace(rolling.at(1), relin_keys);
+      rolling.at(2) = AND(OR(B_greater_A, rolling.at(2), eval, relin_keys), NOT(rolling.at(1), eval), eval);
+      (*eval).relinearize_inplace(rolling.at(2), relin_keys);
+  }
+
+  return rolling;
 }
 
-vector<Ciphertext> Full_comparator(vector<Ciphertext> A, vector<Ciphertext> B, RelinKeys relin_keys, Evaluator *eval)
+vector <Ciphertext> Full_comparator(vector <Ciphertext> A, vector <Ciphertext> B, RelinKeys relin_keys, Evaluator* eval)
 {
-    vector<Ciphertext> results;
-    int size = A.size();
-    int i;
+ vector <Ciphertext> results;
+ int size = A.size();
+ int i;
 
-    if (A.size() != B.size())
-    {
-        cout << "Erro - tamanhos diferentes\n";
-        exit(1);
-    }
-    /*From MSB to LSB*/
-    results = bit_Comparator(A.at(size - 1), B.at(size - 1), results, relin_keys, eval);
-    for (i = size - 2; i >= 0; i--)
-    {
-        results = bit_Comparator(A.at(i), B.at(i), results, relin_keys, eval);
-    }
+ if (A.size() != B.size())
+ {
+   cout << "Erro - tamanhos diferentes\n";
+   exit(1);
+  }
+  /*From MSB to LSB*/
+ results = bit_Comparator(A.at(size-1), B.at(size-1), results, relin_keys, eval);
+ for (i = size-2; i>=0; i--)
+ {
+   results = bit_Comparator(A.at(i), B.at(i), results, relin_keys, eval);
+ }
 
-    return results;
+ return results;
 }
 
 SEALContext create_context()
@@ -495,7 +509,6 @@ vector<string> check_query_names(string message_decoded, string *tablename, stri
                 command = "SELECT";
             }
         }
-
         i++;
     }
     if (command.compare("DELETE") == 0 || command.compare("SELECT ROW") == 0)
@@ -574,6 +587,18 @@ string execute_query(string message_decoded, string client_name)
         cout << "Found SELECT SUM!" << '\n';
 
         colnames = check_query_names(message_decoded, &tablename, "SUM", &row_num, &colnames_op, &logic, &operators);
+        for (int i = 0; i < colnames_op.size(); i++)
+        {
+            cout << "Colnames " << colnames_op.at(i) << endl;
+            cout << "Operators:" << operators.at(i) << endl;
+            if (i != colnames_op.size() - 1)
+                cout << "Logic:" << logic.at(i) << endl;
+        }
+
+        decode_values_message(client_name);
+
+        select(colnames_op, colnames, tablename, operators, logic, 1);
+
         return "SELECT";
     }
     else if (message_decoded.find("SELECT") == 0)
@@ -593,7 +618,7 @@ string execute_query(string message_decoded, string client_name)
 
         decode_values_message(client_name);
 
-        select(colnames, tablename, operators.at(0));
+        select(colnames_op, colnames, tablename, operators, logic, 0);
 
         return "SELECT";
         //ESCREVER PARA FICHEIRO/ENCRIPTAR COM SESSION KEYS
@@ -616,19 +641,22 @@ void send_reply(int newFD, string reply)
     close(newFD);
 }
 
-vector<string> get_files_names(string tablename, string colname){
+vector<string> get_files_names(string tablename, string colname)
+{
     string path("Encrypted_Database/");
     path.append(tablename);
     path.append("/");
 
     string comm("cd ");
     comm.append(path);
-    if(colname.compare(" ") != 0){
+    if (colname.compare(" ") != 0)
+    {
         comm.append("\n for file in ");
         comm.append(colname);
         comm.append("/* ; do  echo \"$file\"; done");
-    } 
-    else comm.append("\n for folder in */; do  echo \"$folder\"; done");
+    }
+    else
+        comm.append("\n for folder in */; do  echo \"$folder\"; done");
 
     const char *run_comm = comm.c_str();
     string result = exec(run_comm);
@@ -637,12 +665,12 @@ vector<string> get_files_names(string tablename, string colname){
     string delimiter = "\n", token;
     size_t pos = 0;
     // separate string result in various column names
-    while ((pos = result.find(delimiter)) != std::string::npos) {
+    while ((pos = result.find(delimiter)) != std::string::npos)
+    {
         token = result.substr(0, pos);
         result.erase(0, pos + delimiter.length());
 
         names.insert(names.end(), token);
-        cout << token << endl;
     }
     return names;
 }
@@ -652,9 +680,8 @@ vector<string> get_files_names(string tablename, string colname){
 void insert_values(int n_value, string tablename, vector<string> colname)
 {
     SEALContext context = create_context();
-
     vector<Ciphertext> value_encrypted(9);
-
+    
     ifstream values_file;
     values_file.open("Files/values.txt", ios::binary);
 
@@ -665,27 +692,13 @@ void insert_values(int n_value, string tablename, vector<string> colname)
 
     string comm("cd ");
     comm.append(path);
-    comm.append("\nls -1 | tail -n 2 > last_row.bin");
+    comm.append("\nls -1 | tail -n 1");
 
     const char *run_comm = comm.c_str();
-    system(run_comm);
-
-    string row_path(path);
-    path.append("/last_row.bin");
-
-    ifstream last_row_file(path);
-    string last_row_name;
-
-    getline(last_row_file, last_row_name);
-    last_row_file.close();
-    comm = "rm ";
-    comm.append(path);
-
-    const char *run_comm1 = comm.c_str();
-    system(run_comm1);
+    string last_row_name = exec(run_comm);
 
     int last_row;
-    if (last_row_name.compare("last_row.bin") == 0)
+    if (last_row_name.compare("") == 0)
         last_row = -1;
     else
         last_row = last_row_name.at(0) - '0';
@@ -702,6 +715,7 @@ void insert_values(int n_value, string tablename, vector<string> colname)
 
         ofstream entry_file;
         entry_file.open(file_path, ios::binary);
+
         value_encrypted.at(0).load(context, values_file);
         value_encrypted.at(0).save(entry_file);
 
@@ -713,6 +727,7 @@ void insert_values(int n_value, string tablename, vector<string> colname)
 
         entry_file.close();
     }
+    values_file.close();
 }
 
 void delete_line(int row_num, string tablename)
@@ -734,7 +749,7 @@ void select_line(string tablename, int row_num)
 
     // get values into single file to be sent
     SEALContext context = create_context();
-    vector<Ciphertext> value_encrypted(9);
+    Ciphertext value_encrypted;
 
     ofstream result_file;
     result_file.open("Files/query_result.txt", ios::binary);
@@ -744,21 +759,16 @@ void select_line(string tablename, int row_num)
         string value_path("Encrypted_Database/");
         value_path.append(tablename); //Não falta barras? - Não porque o nome das pastas já vêm com barra - Amaro
         value_path.append("/");
-        value_path.append(col_names.at(j)); 
+        value_path.append(col_names.at(j));
         value_path.append(to_string(row_num));
         value_path.append(".txt");
+        cout << "Selected row number: " << to_string(row_num) << endl;
 
         ifstream entry_file;
         entry_file.open(value_path, ios::binary);
 
-        value_encrypted.at(0).load(context, entry_file);
-        value_encrypted.at(0).save(result_file);
-
-        for (int i = 1; i < 9; i++)
-        {
-            value_encrypted.at(i).load(context, entry_file);
-            value_encrypted.at(i).save(result_file);
-        }
+        value_encrypted.load(context, entry_file);
+        value_encrypted.save(result_file);
 
         entry_file.close();
     }
@@ -774,105 +784,156 @@ void select_line(string tablename, int row_num)
     infile.close();
 }
 
-vector<Ciphertext> GetClientInputVal(SEALContext context) //Melhor maneira???
-{
-    vector<Ciphertext> value_encrypted(8);
-    int i = 0;
-    ifstream values_file;
-    values_file.open("Files/values.txt", ios::binary);
-    for (i = 0; i < 8; i++) //C
-    {
-        value_encrypted.at(0).load(context, values_file);
-    }
-
-    return value_encrypted;
-}
-
-vector<Ciphertext> select(vector<string> colnames, string tablename, int operation)
-{ //operation: 0 if =; 1 if >; 2 if <
+void select(vector<string> comparation_columns, vector<string> select_columns, string tablename, vector<int> operation, vector<int> logic, int flag_comm)
+{ //operation(i): 0 if =; 1 if >; 2 if <
     SEALContext context = create_context();
     Evaluator evaluator(context);
-    RelinKeys relin_keys;
-    KeyGenerator keygen(context);
 
-    keygen.create_relin_keys(relin_keys);
+    ifstream relin_keys_file;
+    RelinKeys relin_keys;
+
+    relin_keys_file.open("Files/DB_relin.key", ios::binary);
+    relin_keys.load(context, relin_keys_file);
+
     vector<Ciphertext> compare_results, client_input(8), table_value_bits(8), output_values = {};
     Ciphertext mult_result, table_value_full;
-    int i, j, k, n_of_rows;
     string curr_colname, path;
     ifstream table_value_file, client_values_file;
-    ofstream result_file, result_file_2;
+
     int number_of_rows = 0;
+    vector<vector<Ciphertext>> Comparasions_matrix;
+    vector<Ciphertext> aux_vector, rowsToCollect;
+    Ciphertext sums;
+
+    vector<string> row_names = {}; 
 
     client_values_file.open("Files/values.txt", ios::binary);
 
-    // É melhor nao dar overwritten porque depois é preciso esse valor dar display no cliente - Amaro
     client_input.at(0).load(context, client_values_file); // Carregar nº completo - para ser overwritten
-    for (i = 0; i < 8; i++)                               //Bits encriptados apenas. Não necessita do nº completo
-    {
+    for (int i = 0; i < 8; i++)                               //Bits encriptados apenas. Não necessita do nº completo
         client_input.at(i).load(context, client_values_file);
-    }
+    
 
-    for (i = 0; i < colnames.size(); i++)
+    //1 - Ir buscar comparações 
+    for (int i = 0; i < comparation_columns.size(); i++) 
     {
         //Select column name.
-        curr_colname = colnames.at(i);
-        
-        vector<string> row_names = get_files_names(tablename, curr_colname);
-        for (j = 0; j < row_names.size(); j++)
+        curr_colname = comparation_columns.at(i);
+
+        row_names = get_files_names(tablename, curr_colname);
+
+        if (row_names.size() > number_of_rows)
+            number_of_rows = row_names.size(); //Ver o número máximo de linhas.
+
+        aux_vector = {};
+        for (int j = 0; j < row_names.size(); j++)
         {
             //Get Table values
             path = ("Encrypted_Database/");
             path.append(tablename);
             path.append("/");
-            path.append(row_names.at(j)); // Não é preciso pôr o nome da coluna porque já vem no row_names - Amaro
-            cout << "Row names: " << row_names.at(j) << endl;
+            path.append(row_names.at(j));
 
             table_value_file.open(path, ios::binary);
 
-            table_value_full.load(context, table_value_file); // Primeiro valor completo
-            for (k = 0; k < 8; k++)                           //Depois bit a bit
-            {
+            table_value_full.load(context, table_value_file); // Primeiro valor completo - Update: Desnecessário. Overwrite?
+            for (int k = 0; k < 8; k++)                           //Depois bit a bit
                 table_value_bits.at(k).load(context, table_value_file);
-            }
 
             table_value_file.close();
             
             compare_results = Full_comparator(client_input, table_value_bits, relin_keys, &evaluator);
 
-            evaluator.multiply(compare_results.at(operation), table_value_full, mult_result);
-            output_values.insert(output_values.end(), mult_result);
+            aux_vector.push_back(compare_results.at(operation.at(i)));
+        }
+        Comparasions_matrix.push_back(aux_vector);
+    }
+    cout << "1 has finished" << endl;
 
-            //Empty path String
-            path.clear();
+    //2 - Verificar a validade de cada linha, consoante o valor lógico definido 
+    for (int i = 0; i < row_names.size(); i++) 
+    {
+        Ciphertext tmp_rowcollect;
+
+        if(logic.size() == 0) break; //if there is only one column aka no AND or OR
+        
+        if (logic.at(0) == 0){ // AND = 0
+            tmp_rowcollect = AND(Comparasions_matrix.at(0).at(i), Comparasions_matrix.at(1).at(i), &evaluator);
+            //cout << "Fresh encryption noise budget for degree " << "64" << ": " << decryptor.invariant_noise_budget(tmp_rowcollect) << " bits." << endl;
+            evaluator.relinearize_inplace(tmp_rowcollect, relin_keys);
+        }
+        else if (logic.at(0) == 1){ // OR = 1
+            tmp_rowcollect = OR(Comparasions_matrix.at(0).at(i), Comparasions_matrix.at(1).at(i), &evaluator, relin_keys);
+            //cout << "Fresh encryption noise budget for degree " << "64" << ": " << decryptor.invariant_noise_budget(tmp_rowcollect) << " bits." << endl;
+        } 
+        
+        rowsToCollect.push_back(tmp_rowcollect); //Linha 0 inserida na posição 0, 1 em 1...
+    }
+    cout << "2 has finished" << endl;
+
+    //3 - SELECT OU SELECT SUM
+    for (int i = 0; i < select_columns.size(); i++){
+        curr_colname = select_columns.at(i); //Abrir a coluna de onde se retirará valores
+        row_names = get_files_names(tablename, curr_colname);
+
+        for (int j = 0; j < row_names.size(); j++)
+        {
+            //Get Table values
+            path = ("Encrypted_Database/");
+            path.append(tablename);
+            path.append("/");
+            path.append(row_names.at(j)); 
+
+            table_value_file.open(path, ios::binary);
+            table_value_full.load(context, table_value_file);
+            table_value_file.close();
+
+            evaluator.multiply(rowsToCollect.at(j), table_value_full, mult_result);
+            evaluator.relinearize_inplace(mult_result, relin_keys);
+
+            if(j == 0){
+                output_values.insert(output_values.end(), mult_result); //O 1º vai sempre para o vetor, independentemente de qual seja o modo
+            }
+            else{
+                if(flag_comm == 1){ // SELECT SUM
+                    evaluator.add(output_values.at(0), mult_result, output_values.at(0)); //Vai somando o vetor inplace.
+                }
+                if(flag_comm == 0){ // SELECT 
+                    output_values.insert(output_values.end(), mult_result);               //Vai acrescentando mais
+                }
+            }
         }
     }
+    
+    cout << "3 has finished" << endl;
+    
+    //4 - Escrever mult result para ficheiro
+    ofstream result_file, result_file_2;
 
-    //Escrever mult result para ficheiro
     result_file.open("Files/query_result.txt", ios::binary);
-
-    for (i = 0; i < output_values.size(); i++)
-    {
-        output_values.at(i).save(result_file);
-    }
-    result_file.close();
-
     result_file_2.open("Files/query_result_2.txt", ios::binary);
+
     // store number of values that is being sent in file
     result_file_2 << to_string(output_values.size()) << endl;
     cout << "size of output files: " << output_values.size() << endl;
+
+    int m = 0, n = 0;
+    for (int i = 0; i < output_values.size(); i++)
+    {
+        output_values.at(i).save(result_file); // saving output value
+        if (m == select_columns.size()*2){
+            m = 0;
+            n ++;
+            if (n == select_columns.size()) n--;
+        }
+        result_file_2 << select_columns.at(n) << endl;
+        m++;
+    }
+    
+    result_file.close();
     result_file_2.close();
 
-    return output_values;
-    //PERGUNTA
-    //2 - Necessário dar reset do evaluator?
-    //3 - Podemos basear SELECT SUM nisto?
-}
-
-vector<Ciphertext> GetTableVal(vector<string> colnames, string tablename, int row_num)
-{
-    vector<Ciphertext> value_encrypted(9);
-    return value_encrypted;
+    cout << "4 has finished" << endl;
 }
 
 /********************************************* Server Main **************************************************/
@@ -960,6 +1021,10 @@ int main(int argc, char *argv[])
         // encrypt with session key and move to client folder
         if (query_result.compare("SELECT") == 0)
             encode_message(query_result, client_name);
+        else if (query_result.compare("FAILURE") == 0){
+            send_reply(newFD, "failure");
+            continue;
+        }
 
         send_reply(newFD, "finished");
     }

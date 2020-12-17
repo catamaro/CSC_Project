@@ -21,13 +21,14 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>  
+#include <stdlib.h>
 #include <sstream>
 
 #include <cstdio>
 #include <stdexcept>
 #include <array>
 
-#define PORT 5000
+#define PORT 5001
 
 using namespace std;
 using namespace seal;
@@ -52,6 +53,7 @@ void decode_message(int query_num);
 void encode_message(string message, int val_flag);
 string connect_to_server(string message);
 string load_string(string path);
+int hex_to_dec(Plaintext plain_hex);
 
 /* Functions of Server */
 bool verify_root_CA();
@@ -73,9 +75,7 @@ vector<string> get_files_names(string tablename, string colname);
 void delete_line(int row_num, string tablename);
 void insert_values(int n_value, string tablename, vector<string> colname);
 void select_line(string tablename, int row_num);
-vector<Ciphertext> select(vector<string> colnames, string tablename, int operation);
-vector<Ciphertext> GetTableVal(vector<string> colnames, string tablename, int row_num);
-vector<Ciphertext> GetClientInputVal(SEALContext context);
+void select(vector<string> comparation_columns, vector<string> select_columns, string tablename, vector<int> operation, vector<int> logic, int flag_comm);
 
 
 std::string exec(const char* cmd) {

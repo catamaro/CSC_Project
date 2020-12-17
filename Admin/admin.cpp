@@ -21,6 +21,15 @@ void install_db_key(string name){
 
     const char * mov_db_key = db_key.c_str();
     system(mov_db_key);
+
+    if(name.compare("Server") == 0){
+        string db_key("cd homomorphic_keys\n cp -t ../../");
+        db_key.append(name);//Pasta do cliente
+        db_key.append("/Files/ DB_relin.key");
+
+        const char * mov_db_key = db_key.c_str();
+        system(mov_db_key);
+    }
 }
 
 void generate_db_key(){
@@ -34,22 +43,27 @@ void generate_db_key(){
     parms.set_plain_modulus(64);
     SEALContext context(parms);
 
-
     KeyGenerator keygen(context);
     SecretKey private_key = keygen.secret_key();
     PublicKey public_key;
+    RelinKeys relin_keys;
+    keygen.create_relin_keys(relin_keys);
     keygen.create_public_key(public_key);
 
     ofstream public_key_file;
     ofstream private_key_file;
+    ofstream relin_keys_file;
     public_key_file.open("homomorphic_keys/DB_public.key");
     private_key_file.open("homomorphic_keys/DB_private.key");
+    relin_keys_file.open("homomorphic_keys/DB_relin.key");
 
     private_key.save(private_key_file);
  	public_key.save(public_key_file);
+ 	relin_keys.save(relin_keys_file);
 
  	private_key_file.close();
  	public_key_file.close();
+ 	relin_keys_file.close();
 }
 
 void install_CA_certificate(string name)
@@ -142,6 +156,7 @@ int main()
 
     install_db_key("Client1");
     install_db_key("Client2");
+    install_db_key("Server");
 
     //Install root CA in all entities;
     install_CA_certificate("Client1");
