@@ -18,19 +18,21 @@ bool verify_root_CA()
         {
             root.close();
             system("rm Files/root_id.txt\n");
-            cout << "Certificate validated: Verified OK" << endl;
-            return true;
+            cout << "Certificate Validation: Verified OK" << endl;
         }
         else
         {
             root.close();
             cout << "CA inválido: não corresponde à root\n";
+            return false;
         }
     }
-    return false;
+    else return false;
+
+    return true;
 }
 
-int verify_client_sign(string name)
+int verify_signatures(string name)
 {
     bool validation;
     // extract client's public key from certificate
@@ -43,15 +45,25 @@ int verify_client_sign(string name)
     const char *run_comm = comm.c_str();
     system(run_comm);
 
+    // decode session key signature
+    comm ="openssl enc -d -aes-256-cbc -pbkdf2 -in Messages/";
+    comm.append(name);
+    comm.append("-sign.sha256.enc -out Messages/");
+    comm.append(name);
+    comm.append("-sign.sha256 -pass file:./session.key");
+
+    const char *run_comm2 = comm.c_str();
+    system(run_comm2);
+
     // verify encrypted session key signature
     comm = "openssl dgst -sha256 -verify Messages/";
     comm.append(name);
     comm.append("-publ.pem -signature Messages/");
     comm.append(name);
-    comm.append("-sign.sha256 Messages/session.key.enc > Messages/verified.txt\n");
+    comm.append("-sign.sha256 session.key > Messages/verified.txt");
 
-    const char *run_comm2 = comm.c_str();
-    system(run_comm2);
+    const char *run_comm3 = comm.c_str();
+    system(run_comm3);
 
     // load verified.txt to confirm signature
     string sign_check = load_string("Messages/verified.txt");
@@ -66,11 +78,13 @@ int verify_client_sign(string name)
     else
     {
         cout << "\nerror: Signature not valid! Message will not be considered" << endl;
-        validation =  false;
+        validation = false;
     }
 
     // remove unecessary files - encrypted sesion key
-    comm = "rm Messages/session.key.enc ";
+    comm = "rm Messages/";
+    comm.append(name);
+    comm.append("-session.key.enc ");
     comm.append("Messages/");
     comm.append(name);
     comm.append("-sign.sha256 ");
@@ -80,56 +94,150 @@ int verify_client_sign(string name)
     comm.append("Messages/");
     comm.append(name);
     comm.append("-publ.pem ");
+    comm.append("Messages/");
+    comm.append(name);
+    comm.append("-sign.sha256.enc ");
 
-    const char *run_comm3 = comm.c_str();
-    system(run_comm3);
-    
+    const char *run_comm4 = comm.c_str();
+    system(run_comm4);
+
+    // extract client's public key from certificate
+    system("openssl x509 -pubkey -noout -in Files/root_ca.crt > Files/root_publ.key");
+
+    // verify encrypted session key signature
+    sign_check = exec("openssl dgst -sha256 -verify Files/root_publ.key -signature Files/DB_relin.sha256 Files/DB_relin.key");
+    if (sign_check.compare("Verified OK\n") == 0) cout << "Relin DB Key Signature Validation: " << sign_check << endl;
+    else{
+        cout << "Signature not valid! Message will not be considered" << endl;
+        validation = false;
+    }
+
+
     return validation;
+}
+// function to verify files in client folder, certificates and keys
+bool verify_certificates(string name)
+{
+    // check if client certificate is valid
+    string comm("openssl verify -CAfile Files/root_ca.crt Messages/");
+    comm.append(name);
+    comm.append("-cert.crt > Messages/verified.txt");
+
+    const char * run_comm = comm.c_str();
+    system(run_comm);
+
+    // load verified.txt to confirm signature
+    string sign_check = load_string("Messages/verified.txt");
+    system("rm Messages/verified.txt\n");
+
+    string s_compare("Messages/");
+    s_compare.append(name);
+    s_compare.append("-cert.crt: OK");
+
+    if (sign_check.find(s_compare) != 0)
+    {
+        cout << "Client certificate is not valid! Message will not be considered" << endl;
+        return false;
+    }
+
+    // check if client certificate has expired
+    comm = "openssl x509 -enddate -noout -in Messages/";
+    comm.append(name);
+    comm.append("-cert.crt");
+    const char * run_comm1 = comm.c_str();
+
+    string exp_date = exec(run_comm1);
+    tm current_time = get_time();
+
+    string check_date = verify_date(exp_date, current_time);
+    if (check_date.compare("NOK") == 0) return false;
+
+
+    // check if server certificate is valid
+    sign_check = exec("openssl verify -CAfile Files/root_ca.crt Files/Server-cert.crt");
+    if (sign_check.find("Files/Server-cert.crt: OK") != 0)
+    {
+        cout << "Server certificate is not valid! Message will not be considered" << endl;
+        return false;
+    }
+
+    // check if server certificate has expired
+    exp_date = exec("openssl x509 -enddate -noout -in Files/Server-cert.crt");
+    current_time = get_time();
+
+    check_date = verify_date(exp_date, current_time);
+    if (check_date.compare("NOK") == 0) return false;
+
+    // check if server's private key is coherent with server certificate
+    string crt = exec("openssl x509 -noout -modulus -in Files/Server-cert.crt| openssl md5");
+    string key = exec("openssl rsa -noout -modulus -in Files/Server-priv.pem | openssl md5");
+
+    if (crt.compare(key))
+    {
+        cout << "Server's private key doesn't match with certificate" << endl;
+        return false;
+    }
+
+
+    return true;
 }
 
 string decode_query(string *client_name)
 {
-    string name;
-    // descrypt session key with server's private key
-    system("openssl rsautl -decrypt -inkey Files/Server-priv.pem -in Messages/session.key.enc -out session.key\n");
-    // descrypt session key with server's private key
-    system("openssl enc -d -aes-256-cbc -pbkdf2 -in Messages/name.enc -out Messages/name.txt -pass file:./session.key\n");
+    // take client name from first filename in the folder Messages
+    string comm("cd Messages/");
+    comm.append("\nls -1 | head -n 1");
+    const char *run_comm = comm.c_str();
+    string filename = exec(run_comm);
 
-    *client_name = load_string("Messages/name.txt");
-    system("rm Messages/name.txt Messages/name.enc");
-    
-    // remove \n in the end
-    if (!(*client_name).empty())
-        (*client_name) = (*client_name).substr(0, 7);
+    if (!filename.empty())
+        (*client_name) = filename.substr(0, 7);
 
-    name = *client_name;
+
+    // decode session key
+    comm = "openssl rsautl -decrypt -inkey Files/Server-priv.pem -in Messages/";
+    comm.append(*client_name);
+    comm.append("-session.key.enc -out session.key");
+    const char *run_comm1 = comm.c_str();
+    system(run_comm1);
+
     // descrypt message with session key
-    string comm("openssl enc -d -aes-256-cbc -pbkdf2 -in Messages/");
-    comm.append(name);
-    comm.append("-message.enc -out Messages/message.txt -pass file:./session.key\n");
+    comm ="openssl enc -d -aes-256-cbc -pbkdf2 -in Messages/";
+    comm.append(*client_name);
+    comm.append("-message.enc -out Messages/message.txt -pass file:./session.key");
 
     const char *run_comm2 = comm.c_str();
     system(run_comm2);
 
-    // remove unecessary files - encoded message with session key
-    comm = "rm Messages/";
-    comm.append(name);
-    comm.append("-message.enc ");
+    // import message into variable
+    string message_decoded = load_string("Messages/message.txt");
+
+    comm = "rm Messages/message.txt Messages/";
+    comm.append(*client_name);
+    comm.append("-message.enc");
 
     const char *run_comm3 = comm.c_str();
     system(run_comm3);
 
-    // import message into variable
-    string message_decoded = load_string("Messages/message.txt");
-
-    system("rm Messages/message.txt");
-
     return message_decoded;
+}
+
+void encode_message_fail(string name){
+
+    system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Messages/fail.txt -out Messages/fail.enc -pass file:./session.key\n");
+
+    string comm("mv Messages/fail.enc ../");
+    comm.append(name);
+    comm.append("/Answers");
+    const char *run_comm = comm.c_str();
+    system(run_comm);
+
+    // remove unnecessary files: session key and plain-text message
+    system("rm session.key Messages/fail.txt");
 }
 
 void encode_message(string query_result, string name)
 {
-
     // encrypt query result with session key
     system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Messages/query_result.txt -out Messages/query_result.enc -pass file:./session.key\n");
     system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Messages/query_result_2.txt -out Messages/query_result_2.enc -pass file:./session.key\n");
@@ -151,7 +259,9 @@ void decode_values_message(string name)
     // descrypt message with session key
     string comm("openssl enc -d -aes-256-cbc -pbkdf2 -in Messages/");
     comm.append(name);
-    comm.append("-values.enc -out Messages/values.txt -pass file:./session.key\n");
+    comm.append("-values.enc -out Messages/");
+    comm.append(name);
+    comm.append("-values.txt -pass file:./session.key\n");
 
     const char *run_comm2 = comm.c_str();
     system(run_comm2);
@@ -182,7 +292,7 @@ Ciphertext NOT (Ciphertext input, Evaluator* eval)
   return output;
 }
 
-Ciphertext AND(Ciphertext inA, Ciphertext inB, Evaluator *eval) /*Should be single bits - effectively a multiplication*/
+Ciphertext AND(Ciphertext inA, Ciphertext inB, Evaluator *eval) /*Input is single bits - effectively a multiplication*/
 {
   Ciphertext mult_result;
   (*eval).multiply(inA, inB, mult_result);
@@ -297,17 +407,35 @@ int check_exists_table(string name)
     tbl.append(name);
     tbl.append("' ]");
     const char *table = tbl.c_str();
-    if (system(table))
+    if (system(table)) //Tabela não existe
     {
-        string tbl("cd Encrypted_Database\n mkdir ");
+        /*string tbl("cd Encrypted_Database\n mkdir ");
         tbl.append(name);
         const char *table = tbl.c_str();
-        system(table);
+        system(table);*/
         return 1;
     }
     else
+		return 0; //Tabela existe
+}
+
+int check_exists_colname(string colname, string tablename)
+{
+
+    string path("cd Encrypted_Database\n[ -d '");
+    path.append(tablename);
+    path.append("/");
+    path.append(colname);
+    path.append("' ]");
+    const char *column = path.c_str();
+    if (system(column)) /*Coluna não existe - Errado*/
     {
-        cout << "Table already exists\n";
+        cout << "Error - Column does not exist" << endl;
+
+        return 1;
+    }
+    else //Coluna existe - OK
+    {
         return 0;
     }
 }
@@ -346,13 +474,16 @@ void create_column(string name, string column)
 
 int create_table(string message, string client_name)
 {
-
+    int table_exists;
     string word = "";
     string name = "";
     int i = 1;
     int j = 0;
     int get_col = 0;
-    vector<string> colnames(10);
+    vector<string> colnames;
+    string check_colname ="";
+    int check_equal_columns = 0;
+    int equal = 0;
     //Get name of the table and the columns
     for (auto x : message)
     {
@@ -388,24 +519,47 @@ int create_table(string message, string client_name)
     {
         name = word;
     }
+    //checking if there are columns with the same name
+    for (int k = 0; k < colnames.size(); k++){
+        for(int j = 0; j < colnames.size(); j++){
+            if(colnames.at(k).compare(colnames.at(j)) == 0)
+                equal++;
+        }
+        if (equal > 1){
+            check_equal_columns = 1;
+            cout << "Error: columns with the same name!" << endl;
+            break;
+        }
+        else equal = 0;
+    }
+
+    if(check_equal_columns == 1) return 0; //equal colunms
     //remove \n
     if (!name.empty() && name[name.length() - 1] == '\n')
         name.erase(name.length() - 1);
 
-    // Check if table already exists, if not, create
-    check_exists_table(name);
+    
+    // Check if table already exists, if not, create; if yes, return error.
+	table_exists = check_exists_table(name);
 
-    //Creating name of the file that contains clients ID
+	if (table_exists == 1)
+    {
+      string tbl("cd Encrypted_Database\n mkdir ");
+      tbl.append(name);
+      const char *table = tbl.c_str();
+      system(table);
+    }
+    else if (table_exists == 0)
+    {
+		cout << "Error: Table already exists" << endl;
+		return 0;
+    }
+	//Creating name of the file that contains clients ID
     create_clients_file(name, client_name);
 
     //Creating columns
-    for (int k = 0; k < colnames.size(); k++)
-    {
-        if (colnames.at(k).compare("") != 0)
-        {
-            create_column(name, colnames.at(k));
-        }
-    }
+    for (int k = 0; k < colnames.size(); k++) create_column(name, colnames.at(k));
+
     return 1;
 }
 
@@ -413,6 +567,7 @@ vector<string> check_query_names(string message_decoded, string *tablename, stri
 {
     vector<string> colnames = {};
     string s = message_decoded, delimiter = " ", token;
+    int exists;
 
     size_t pos = 0, i = 1;
     while ((pos = s.find(delimiter)) != string::npos)
@@ -421,18 +576,36 @@ vector<string> check_query_names(string message_decoded, string *tablename, stri
         s.erase(0, pos + delimiter.length());
 
         if (i == 2 && command.compare("DELETE") == 0)
+        {    //Linha não existe
             *row_num = stoi(token);
+        }
         else if (i == 3 && command.compare("SELECT ROW") == 0)
+        {
             *row_num = stoi(token);
+        }
         else if (command.compare("INSERT") == 0)
         {
             if (i == 4)
+            {
+                exists = check_exists_table(token);
+                if (exists == 1) //Table não existe
+                {
+					colnames.resize(0);
+					return colnames;
+                }
                 *tablename = token;
+            }
             else if (i == 5)
             {
                 token.erase(0, 1);
                 while (token.compare(")") != 0 && (pos = s.find(delimiter)) != string::npos)
                 {
+                    exists = check_exists_colname(token, *tablename);
+                    if (exists == 1) //Colunas não existe
+                    {
+                      colnames.resize(0);
+                      return colnames;
+                    }
                     colnames.insert(colnames.end(), token);
                     token = s.substr(0, pos);
                     s.erase(0, pos + delimiter.length());
@@ -451,17 +624,48 @@ vector<string> check_query_names(string message_decoded, string *tablename, stri
                 }
             }
             else if (i == 3)
+            {
+                exists = check_exists_table(token);
+                if (exists == 1) //Tabela não existe
+                {
+                  colnames.resize(0);
+                  return colnames;
+                }
                 *tablename = token;
+
+                for(int j = 0; j < colnames.size(); j++){
+                    exists = check_exists_colname(colnames.at(j), *tablename);
+                    if (exists == 1) //Colunas não existe
+                    {
+                      colnames.resize(0);
+                      return colnames;
+                    }
+                }
+            }
             else if (i == 5)
+            {
+                exists = check_exists_colname(token, *tablename);
+                if (exists == 1) //Colunas não existe
+                {
+                  colnames.resize(0);
+                  return colnames;
+                }
                 (*colnames_op).insert((*colnames_op).end(), token);
+            }
             else if (i == 6)
             {
                 if (token.compare("=") == 0)
                     (*operators).insert((*operators).end(), 0);
                 else if (token.compare(">") == 0)
-                    (*operators).insert((*operators).end(), 1);
-                else if (token.compare("<") == 0)
                     (*operators).insert((*operators).end(), 2);
+                else if (token.compare("<") == 0)
+                    (*operators).insert((*operators).end(), 1);
+                else
+                {
+                  cout << "Erro: Insira um operador válido [>|<|=]";
+                  colnames.resize(0);
+                  return colnames;
+                }
             }
             else if (i == 8)
             {
@@ -470,6 +674,12 @@ vector<string> check_query_names(string message_decoded, string *tablename, stri
                     (*logic).insert((*logic).end(), 0);
                 else if (token.compare("OR") == 0)
                     (*logic).insert((*logic).end(), 1);
+                else
+                {
+                    cout << "Erro: Insira um operador válido [AND ou OR]";
+                    colnames.resize(0);
+                    return colnames;
+                }
                 i = 4;
             }
         }
@@ -482,7 +692,24 @@ vector<string> check_query_names(string message_decoded, string *tablename, stri
                 colnames.insert(colnames.begin(), token);
             }
             else if (i == 4)
+            {
+                exists = check_exists_table(token);
+                if (exists == 1) //Table não existe
+                {
+                  colnames.resize(0);
+                  return colnames;
+                }
                 *tablename = token;
+
+                for(int j = 0; j < colnames.size(); j++){
+                    exists = check_exists_colname(colnames.at(j), *tablename);
+                    if (exists == 1) //Colunas não existe
+                    {
+                      colnames.resize(0);
+                      return colnames;
+                    }
+                }
+            }
             else if (i == 5)
             {
                 i = 4;
@@ -498,8 +725,9 @@ vector<string> check_query_names(string message_decoded, string *tablename, stri
 
     if (check_exists_table(*tablename) != 0)
     {
-        cout << "Table does not exist" << '\n';
-        return {"FAILURE"};
+        cout << "Error: Table does not exist" << '\n';
+        colnames.resize(0);
+	    return colnames;
     }
 
     if (colnames.size() == 0)
@@ -515,59 +743,102 @@ string execute_query(string message_decoded, string client_name)
     vector<string> colnames(10);
     string tablename("");
     int row_num = -1;
+    int equal = 0;
 
     if (message_decoded.find("CREATE TABLE") == 0)
     {
-        cout << "Executing Create Table..." << endl;
-        create_table(message_decoded, client_name);
-        return "CREATE";
-    }
-    else if (message_decoded.find("INSERT") == 0)
+		int table_exists;
+		cout << "Executing Create Table..." << endl;
+		table_exists = create_table(message_decoded, client_name);
+        if (table_exists == 1)
+            return "CREATE";
+        else if (table_exists == 0)
+			return "FAILURE";
+	}
+	else if (message_decoded.find("INSERT") == 0)
     {
         cout << "Executing Insert..." << endl;
         colnames = check_query_names(message_decoded, &tablename, "INSERT", &row_num, {}, {}, {});
         if (colnames.size() == 0)
             return "FAILURE";
 
+        for (int k = 0; k < colnames.size(); k++){
+            for(int j = 0; j < colnames.size(); j++){
+                if(colnames.at(k).compare(colnames.at(j)) == 0)
+                    equal++;
+            }
+            if (equal > 1){
+                cout << "Error: columns with the same name!" << endl;
+                return "FAILURE";
+            }
+            else equal = 0;
+        }
+        
         int n_values = count(message_decoded.begin(), message_decoded.end(), '%');
+
+        string comm2("cd Encrypted_Database/");
+		comm2.append(tablename);
+		comm2.append("\nfind -maxdepth 1 -type d -print| wc -l");
+
+		const char *run_comm2 = comm2.c_str();
+        string check = exec(run_comm2);
+        int n_cols = stoi(check);
+
+        cout << "n_cols: " << n_cols << " n_values: " << n_values << endl;
+        if (n_cols-1 != n_values){
+            cout << "Erro - Não inseriu colunas suficientes" << endl;
+            return "FAILURE";
+        } 
 
         decode_values_message(client_name);
 
-        insert_values(n_values, tablename, colnames);
+        insert_values(n_values, tablename, colnames, client_name);
 
         return "INSERT";
     }
     else if (message_decoded.find("DELETE") == 0)
     {
         cout << "Executing Delete..." << endl;
+        int exists;
         vector<string> ret;
 
         ret = check_query_names(message_decoded, &tablename, "DELETE", &row_num, {}, {}, {});
         if (ret.size() == 0)
             return "FAILURE";
 
-        delete_line(row_num, tablename);
+        exists = delete_line(row_num, tablename);
 
-        return "DELETE";
+        if (exists == 1) return "FAILURE";
+        else return "DELETE";
     }
     else if (message_decoded.find("SELECT ROW") == 0)
     {
         cout << "Executing Select Row..." << endl;
 
-        check_query_names(message_decoded, &tablename, "SELECT ROW", &row_num, {}, {}, {});
+        vector<string> ret;
+		int valid;
 
-        select_line(tablename, row_num);
-        return "SELECT";
-    }
-    else if (message_decoded.find("SELECT SUM") == 0)
+		ret = check_query_names(message_decoded, &tablename, "SELECT ROW", &row_num, {}, {}, {});
+        if (ret.size() == 0)
+            return "FAILURE";
+
+        valid = select_line(tablename, row_num);
+        if (valid == 1) //Todas as filas existem
+            return "SELECT";
+        else if (valid == 0)
+			return "FAILURE";
+	}
+	else if (message_decoded.find("SELECT SUM") == 0)
     {
         cout << "Executing Select Sum..." << endl;
 
         colnames = check_query_names(message_decoded, &tablename, "SUM", &row_num, &colnames_op, &logic, &operators);
+        if (colnames.size() == 0)
+            return "FAILURE";
 
         decode_values_message(client_name);
 
-        select(colnames_op, colnames, tablename, operators, logic, 1);
+        select(colnames_op, colnames, tablename, operators, logic, 1, client_name);
 
         return "SELECT";
     }
@@ -575,16 +846,27 @@ string execute_query(string message_decoded, string client_name)
     {
         cout << "Executing Select..." << endl;
 
-        // pôr logo no ficheiro em vez de num vector de ciphertext
+        colnames = check_query_names(message_decoded, &tablename, "SELECT", &row_num, &colnames_op, &logic, &operators); 
+        if (colnames.size() == 0)
+            return "FAILURE";
 
-        colnames = check_query_names(message_decoded, &tablename, "SELECT", &row_num, &colnames_op, &logic, &operators); //NEED OPERATOR
-      
+        for (int k = 0; k < colnames.size(); k++){
+            for(int j = 0; j < colnames.size(); j++){
+                if(colnames.at(k).compare(colnames.at(j)) == 0)
+                    equal++;
+            }
+            if (equal > 1){
+                cout << "Error: columns with the same name!" << endl;
+                return "FAILURE";
+            }
+            else equal = 0;
+        }
+
         decode_values_message(client_name);
 
-        select(colnames_op, colnames, tablename, operators, logic, 0);
+        select(colnames_op, colnames, tablename, operators, logic, 0, client_name);
 
         return "SELECT";
-        //ESCREVER PARA FICHEIRO/ENCRIPTAR COM SESSION KEYS
     }
     else
     {
@@ -628,22 +910,65 @@ vector<string> get_files_names(string tablename, string colname)
     return names;
 }
 
+void delete_messages(string client_name){
+    
+    string file_names = exec("for file in Messages/* ; do  echo \"$file\"; done");
+
+    vector<string> names = {};
+    string delimiter = "\n", token;
+    size_t pos = 0;
+
+    string check = exec("if    ls -1qA Messages/ | grep -q .; then  ! echo not empty; else  echo empty; fi");
+    if (check.compare("empty\n") != 0){
+        // separate string result in various column names
+        while ((pos = file_names.find(delimiter)) != std::string::npos)
+        {
+            token = file_names.substr(0, pos);
+            file_names.erase(0, pos + delimiter.length());
+            names.insert(names.end(), token);
+        }
+
+        for(int i = 0; i < names.size(); i++){      
+            if(names.at(i).find(client_name) != names.at(i).size()){
+                string comm = "rm ";
+                comm.append(names.at(i));
+                const char *run_comm = comm.c_str();
+                system(run_comm);
+            } 
+        }
+
+    }
+    
+    string result = exec("if [ -f 'Messages/query_result.txt' ]; then     echo 'exists.'; fi");
+    if (result.compare("exists\n") == 0) system("rm Messages/query_result.txt");
+
+    ofstream failure_file("Messages/fail.txt");
+
+    failure_file << "Query could not be computed";
+
+    failure_file.close();
+} 
+
 /***************************************** Query Functions *********************************************/
 
-void insert_values(int n_value, string tablename, vector<string> colname)
+void insert_values(int n_value, string tablename, vector<string> colname, string client_name)
 {
     SEALContext context = create_context();
     vector<Ciphertext> value_encrypted(9);
-    
+	string table_path;
     ifstream values_file;
-    values_file.open("Messages/values.txt", ios::binary);
+
+	string path_name("Messages/");
+    path_name.append(client_name);
+    path_name.append("-values.txt");
+    values_file.open(path_name, ios::binary);
 
     string path("Encrypted_Database/");
     path.append(tablename);
-    path.append("/");
-    path.append(colname.at(0));
+	path.append("/");
+	path.append(colname.at(0));
 
-    string comm("cd ");
+	string comm("cd ");
     comm.append(path);
     comm.append("\nls -1 | tail -n 1");
 
@@ -681,21 +1006,59 @@ void insert_values(int n_value, string tablename, vector<string> colname)
         entry_file.close();
     }
     values_file.close();
+    
+    string comm2("rm Messages/");
+    comm2.append(client_name);
+    comm2.append("-values.txt");
+
+    const char *run_comm2 = comm2.c_str();
+    system(run_comm2);
 }
 
-void delete_line(int row_num, string tablename)
+int delete_line(int row_num, string tablename)
 {
-    string comm("rm Encrypted_Database/");
-    comm.append(tablename);
-    comm.append("/*/");
-    comm.append(to_string(row_num));
-    comm.append(".txt");
+    bool all_exist = true;
+
+    string path("Encrypted_Database/");
+    path.append(tablename);
+    path.append("/*/");
+    path.append(to_string(row_num));
+    path.append(".txt");
+
+    string comm("rm ");
+    string results;
+    comm.append(path);
 
     const char *run_comm = comm.c_str();
+
+    vector<string> colnames = get_files_names(tablename, " ");
+
+    for(int i=0; i < colnames.size(); i++){
+        string path2("Encrypted_Database/");
+        path2.append(tablename);
+        path2.append("/");
+        path2.append(colnames.at(i));
+        path2.append("/");
+        path2.append(to_string(row_num));
+        path2.append(".txt");
+
+        string comm2 = "if [ -f '";
+        comm2.append(path2);
+        comm2.append("' ]; then     echo 'exists'; fi");
+        const char *run_comm2 = comm2.c_str();
+        results = exec(run_comm2);
+        if (results.compare("exists\n") == 0) all_exist = true;
+        else{
+            cout << "Erro: Linha não existe" << endl;
+            return 1; 
+        }
+    }
+
     system(run_comm);
+    return 0;
 }
 
-void select_line(string tablename, int row_num)
+int select_line(string tablename, int row_num)
 {
     // get column names
     vector<string> col_names = get_files_names(tablename, " ");
@@ -719,7 +1082,13 @@ void select_line(string tablename, int row_num)
         ifstream entry_file;
         entry_file.open(value_path, ios::binary);
 
-        value_encrypted.load(context, entry_file);
+        if(!entry_file) //Ficheiro não existe
+        {
+			cout << "Erro - Linha não existe" << endl;
+			return 0;
+		}
+
+		value_encrypted.load(context, entry_file);
         value_encrypted.save(result_file);
 
         entry_file.close();
@@ -734,9 +1103,11 @@ void select_line(string tablename, int row_num)
         infile << col_names.at(j) << endl;
 
     infile.close();
+
+    return 1;
 }
 
-void select(vector<string> comparation_columns, vector<string> select_columns, string tablename, vector<int> operation, vector<int> logic, int flag_comm)
+void select(vector<string> comparation_columns, vector<string> select_columns, string tablename, vector<int> operation, vector<int> logic, int flag_comm, string client_name)
 { //operation(i): 0 if =; 1 if >; 2 if <
     SEALContext context = create_context();
     Evaluator evaluator(context);
@@ -757,12 +1128,15 @@ void select(vector<string> comparation_columns, vector<string> select_columns, s
     vector<Ciphertext> aux_vector, rowsToCollect;
     Ciphertext sums;
 
-    vector<string> row_names = {}; 
+    vector<string> row_names = {};
 
-    client_values_file.open("Messages/values.txt", ios::binary);
-    
-    //1 - Ir buscar comparações 
-    for (int i = 0; i < comparation_columns.size(); i++) 
+    string path_name("Messages/");
+    path_name.append(client_name);
+    path_name.append("-values.txt");
+    client_values_file.open(path_name, ios::binary);
+
+    //1 - Ir buscar comparações
+    for (int i = 0; i < comparation_columns.size(); i++)
     {
         client_input.at(0).load(context, client_values_file); // Carregar nº completo - para ser overwritten
         for (int i = 0; i < 8; i++)                               //Bits encriptados apenas. Não necessita do nº completo
@@ -792,7 +1166,7 @@ void select(vector<string> comparation_columns, vector<string> select_columns, s
                 table_value_bits.at(k).load(context, table_value_file);
 
             table_value_file.close();
-            
+
             compare_results = Full_comparator(client_input, table_value_bits, relin_keys, &evaluator);
 
             aux_vector.push_back(compare_results.at(operation.at(i)));
@@ -800,19 +1174,19 @@ void select(vector<string> comparation_columns, vector<string> select_columns, s
         Comparasions_matrix.push_back(aux_vector);
     }
 
-    //2 - Verificar a validade de cada linha, consoante o valor lógico definido 
-    for (int i = 0; i < row_names.size(); i++) 
+    //2 - Verificar a validade de cada linha, consoante o valor lógico definido
+    for (int i = 0; i < row_names.size(); i++)
     {
         Ciphertext tmp_rowcollect;
-        
+
         if (logic.at(0) == 0){ // AND = 0
             tmp_rowcollect = AND(Comparasions_matrix.at(0).at(i), Comparasions_matrix.at(1).at(i), &evaluator);
             evaluator.relinearize_inplace(tmp_rowcollect, relin_keys);
         }
         else if (logic.at(0) == 1){ // OR = 1
             tmp_rowcollect = OR(Comparasions_matrix.at(0).at(i), Comparasions_matrix.at(1).at(i), &evaluator, relin_keys);
-        } 
-        
+        }
+
         rowsToCollect.push_back(tmp_rowcollect); //Linha 0 inserida na posição 0, 1 em 1...
     }
 
@@ -827,7 +1201,7 @@ void select(vector<string> comparation_columns, vector<string> select_columns, s
             path = ("Encrypted_Database/");
             path.append(tablename);
             path.append("/");
-            path.append(row_names.at(j)); 
+            path.append(row_names.at(j));
 
             table_value_file.open(path, ios::binary);
             table_value_full.load(context, table_value_file);
@@ -843,14 +1217,14 @@ void select(vector<string> comparation_columns, vector<string> select_columns, s
                 if(flag_comm == 1){ // SELECT SUM
                     evaluator.add(output_values.at(0), mult_result, output_values.at(0)); //Vai somando o vetor inplace.
                 }
-                if(flag_comm == 0){ // SELECT 
+                if(flag_comm == 0){ // SELECT
                     output_values.insert(output_values.end(), mult_result);               //Vai acrescentando mais
                 }
             }
         }
     }
-    
-    
+
+
     //4 - Escrever mult result para ficheiro
     ofstream result_file, result_file_2;
 
@@ -869,13 +1243,20 @@ void select(vector<string> comparation_columns, vector<string> select_columns, s
             m = 0;
             n ++;
         }
-        result_file_2 << select_columns.at(n) << endl;
+        if (flag_comm == 1) result_file_2 << "sum(" + select_columns.at(n) + ")" << endl;
+        else result_file_2 << select_columns.at(n) << endl;
         m++;
     }
-    
+
     result_file.close();
     result_file_2.close();
 
+    string comm2("rm Messages/");
+    comm2.append(client_name);
+    comm2.append("-values.txt");
+
+    const char *run_comm2 = comm2.c_str();
+    system(run_comm2);
 }
 
 /********************************************* Server Main **************************************************/
@@ -883,12 +1264,24 @@ void select(vector<string> comparation_columns, vector<string> select_columns, s
 int main(int argc, char *argv[])
 {
     bool run = true;
+    int input;
     string message_decoded, query_result;
 
     string client_name;
 
     while (run)
     {
+        cout << "\nTo continue select 1 to exit select 0: ";
+        cin >> input;
+        while(cin.fail() || (input != 0 && input != 1)) {
+            cout << "That option is not available.\n";
+            cin.clear();
+            cin.ignore(256,'\n');
+            cout << "To continue select 1 to exit select 0: ";
+            cin >> input;
+        }
+        if(input == 0) break;
+        
         // check if there are new files on the folder
         cout << "\nWaiting for new messages..." << endl;
         while (run){
@@ -899,38 +1292,46 @@ int main(int argc, char *argv[])
         // verify if root certificate is valid
         cout << "Verifying root certificate..." << endl;
         bool verify = verify_root_CA();
-        if (!verify) continue;
+        if (!verify){
+            delete_messages(client_name);
+            continue;
+        }
 
         cout << "Decrypting message..." << endl;
         // decode message and session key and saves it in folder
         message_decoded = decode_query(&client_name); // query decoded
 
-        cout << "Verifying client's signature..." << endl;
+        cout << "Verifying stored certificates..." << endl;
         // verify if client's signature is valid
-        verify = verify_client_sign(client_name);
+        verify =  verify_certificates(client_name);
+        if (!verify){
+            delete_messages(client_name);
+            continue;
+        } 
+
+        cout << "Verifying stored signatures..." << endl;
+        // verify if client's signature is valid
+        verify = verify_signatures(client_name);
         if (!verify) continue;
-   
+
         // creates the directory that will store the tables
         cout << "Creating Database..." << endl;
         create_database();
 
         // executes the decrypted query with homomorphic encrypted values
         query_result = execute_query(message_decoded, client_name);
-        
+
         // encrypt with session key and move to client folder
         if (query_result.compare("SELECT") == 0){
             cout << "Encrypting and Sending query answer..." << endl;
             encode_message(query_result, client_name);
-        } 
+        }
         else if (query_result.compare("FAILURE") == 0){
-            string check = exec("if    ls -1qA Messages/ | grep -q .; then  ! echo not empty; else  echo empty; fi");
-            if (check.compare("empty\n") != 0) system("rm Messages/values.txt");
-            continue;
-        } 
-
-        string check = exec("if    ls -1qA Messages/ | grep -q .; then  ! echo not empty; else  echo empty; fi");
-        if (check.compare("empty\n") != 0) system("rm Messages/values.txt");
-        
+            delete_messages(client_name);
+            encode_message_fail(client_name);
+        }
     }
-    /*********************************** accept messages **********************************/
+    system("cd .. \n ./clear_files.sh");
+
+    return EXIT_SUCCESS;
 }

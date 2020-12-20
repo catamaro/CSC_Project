@@ -14,24 +14,23 @@ void encode_message(string message, int val_flag)
 
     infile.close();
 
-    // create file with name of client to be encrypted
-    ofstream infile2("Files/name.txt");
-
-    infile2 << "Client2" << endl;
-
-    infile2.close();
-
     // extract server's public key from certificate
     system("openssl x509 -pubkey -noout -in Files/Server-cert.crt > Files/Server-publ.pem\n");
     // generate random password file
     system("openssl rand -base64 32 > session.key\n");
-    // session key encrypted with server's public key
-    system("openssl rsautl -encrypt -pubin -inkey Files/Server-publ.pem -in session.key -out Files/session.key.enc\n");
+    
     // session key signed with client's private key
-    system("openssl dgst -sha256 -sign Files/Client2-priv.pem -out Files/Client2-sign.sha256 Files/session.key.enc");
+    system("openssl dgst -sha256 -sign Files/Client2-priv.pem -out Files/Client2-sign.sha256 session.key");
+    // session key encrypted with server's public key
+    system("openssl rsautl -encrypt -pubin -inkey Files/Server-publ.pem -in session.key -out Files/Client2-session.key.enc\n");
+
+    // signature of session key encrypted with server's public key
+    //system("openssl rsautl -encrypt -pubin -inkey Files/Server-publ.pem -in Files/Client2-sign.sha256 -out Files/Client2-sign.sha256.enc\n");
+    
     // encrypt message with session key
+    system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/Client2-sign.sha256 -out Files/Client2-sign.sha256.enc -pass file:./session.key\n");
+
     system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/message.txt -out Files/Client2-message.enc -pass file:./session.key\n");
-    system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/name.txt -out Files/name.enc -pass file:./session.key\n");
     if(val_flag) system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/values.txt -out Files/Client2-values.enc -pass file:./session.key\n");
 
     // remove unnecessary files
@@ -41,9 +40,8 @@ void encode_message(string message, int val_flag)
     // moves encoded session-key, encoded message and certificate to server's folder
     system("mv Files/Client2-message.enc ../Server/Messages\n");
     if(val_flag) system("mv Files/Client2-values.enc ../Server/Messages\n");
-    system("mv Files/session.key.enc ../Server/Messages\n");
-    system("mv Files/name.enc ../Server/Messages\n");
-    system("mv Files/Client2-sign.sha256 ../Server/Messages\n");
+    system("mv Files/Client2-session.key.enc ../Server/Messages\n");
+    system("mv Files/Client2-sign.sha256.enc ../Server/Messages\n");
     system("cp Files/Client2-cert.crt ../Server/Messages\n");
 }
 // function to verify files in client folder, certificates and keys
@@ -76,40 +74,88 @@ bool verify_documents()
 
     // check if client certificate is valid
     system("openssl verify -CAfile Files/root_ca.crt Files/Client2-cert.crt > Files/verified.txt");
-
     // load verified.txt to confirm signature
     string sign_check = load_string("Files/verified.txt");
     system("rm Files/verified.txt\n");
 
     if (sign_check.find("Files/Client2-cert.crt: OK") != 0)
     {
-        cout << "\nerror: Signature not valid! Message will not be considered" << endl;
+        cout << "Client certificate is not valid! Message will not be considered" << endl;
         return false;
     }
 
-    // check if client's private key in coherent with clients certificate
-    int crt = system("openssl x509 -noout -modulus -in Files/Client2-cert.crt| openssl md5");
-    int key = system("openssl rsa -noout -modulus -in Files/Client2-priv.pem | openssl md5");
+    // check if client certificate has expired
+    string exp_date = exec("openssl x509 -enddate -noout -in Files/Client2-cert.crt");    
+    tm current_time = get_time();
 
-    if (crt != key)
+    string check_date = verify_date(exp_date, current_time);
+    if (check_date.compare("NOK") == 0) return false;
+
+    // check if server certificate is valid
+    system("openssl verify -CAfile Files/root_ca.crt Files/Server-cert.crt > Files/verified.txt");
+    // load verified.txt to confirm signature
+    sign_check = load_string("Files/verified.txt");
+    system("rm Files/verified.txt\n");
+
+    if (sign_check.find("Files/Server-cert.crt: OK") != 0)
     {
-        cout << "Client's private key doesn't match certificate" << endl;
+        cout << "Server certificate is not valid! Message will not be considered" << endl;
         return false;
     }
+
+    // check if server certificate has expired
+    exp_date = exec("openssl x509 -enddate -noout -in Files/Server-cert.crt");    
+    current_time = get_time();
+
+    check_date = verify_date(exp_date, current_time);
+    if (check_date.compare("NOK") == 0) return false;
+
+
+    // check if client's private key is coherent with clients certificate
+    string crt = exec("openssl x509 -noout -modulus -in Files/Client2-cert.crt| openssl md5");
+    string key = exec("openssl rsa -noout -modulus -in Files/Client2-priv.pem | openssl md5");
+
+    if (crt.compare(key))
+    {
+        cout << "Client's private key doesn't match with certificate" << endl;
+        return false;
+    }
+    
+    // verify public database key signature
+    sign_check = exec("openssl dgst -sha256 -verify Files/root-publ.key -signature Files/DB_public.sha256 Files/DB_public.key");
+    if (sign_check.compare("Verified OK\n") == 0) cout << "Public DB Key Signature Validation: " << sign_check << endl;
+    else{
+        cout << "Signature not valid! Message will not be considered" << endl;
+        return false;
+    }
+
+    // verify private database key signature
+    sign_check = exec("openssl dgst -sha256 -verify Files/root-publ.key -signature Files/DB_private.sha256 Files/DB_private.key");
+    if (sign_check.compare("Verified OK\n") == 0) cout << "Private DB Key Signature Validation: " << sign_check << endl;
+    else{
+        cout << "Signature not valid! Message will not be considered" << endl;
+        return false;
+    }
+    
     return true;
 }
 // function to decode message with private and public key
-void decode_message(int query_num)
-{
-    string reply_decoded;
+void decode_message(int flag_error)
+{   
+    if (flag_error){
+        system("openssl enc -d -aes-256-cbc -pbkdf2 -in Answers/fail.enc -out Answers/fail.txt -pass file:./session.key\n");
+        string fail = load_string("Answers/fail.txt");
+        cout << fail << endl;
+        
+        system("rm Answers/fail.enc Answers/fail.txt");
 
+        return;
+    } 
     // descrypt message with session key
-    if(query_num == 4 || query_num == 5 || query_num == 6) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Answers/query_result.enc -out Answers/query_result.txt -pass file:./session.key\n");
-    if(query_num == 4 || query_num == 5 || query_num == 6) system("openssl enc -d -aes-256-cbc -pbkdf2 -in Answers/query_result_2.enc -out Answers/query_result_2.txt -pass file:./session.key\n");
+    system("openssl enc -d -aes-256-cbc -pbkdf2 -in Answers/query_result.enc -out Answers/query_result.txt -pass file:./session.key\n");
+    system("openssl enc -d -aes-256-cbc -pbkdf2 -in Answers/query_result_2.enc -out Answers/query_result_2.txt -pass file:./session.key\n");
 
-    // remove unnecessary files: session key and encrypted query result
-    system("rm session.key");
-    if(query_num == 4 || query_num == 5 || query_num == 6) system("rm Answers/query_result.enc Answers/query_result_2.enc");
+    system("rm Answers/query_result.enc Answers/query_result_2.enc");
 }
 
 /******************************************** SEAL functions ************************************************/
@@ -304,52 +350,49 @@ void print_commands()
     cout << "| 4. Select row from table   | SELECT ROW linenum FROM tablename                                                                      |" << endl;
     cout << "| 5. Query table             | SELECT col1name, .., colNname FROM tablename WHERE col1name =|<|> value1 AND|OR col2name =|<|> value2  |" << endl;
     cout << "| 6. Sum column              | SELECT SUM(colname) FROM tablename WHERE col1name =|<|> value AND|OR col2name =|<|> value              |" << endl;
-    cout << "| 7. Multiply column(no need)| SELECT MULT(colname) FROM tablename WHERE col1name =|<|> value AND|OR col2name =|<|> value             |" << endl;
     cout << "+----------------------------+--------------------------------------------------------------------------------------------------------+" << endl;
 }
 // funciton that constructs the query string to be sent
-string create_query(int input_opt, vector<string> *val_to_encrypt, int *query_num)
+string create_query(vector<string> *val_to_encrypt, int *query_num)
 {
-    int input;
-    string tablename, col_name, col_val, col_op, row_num, and_or;
+    int input, col_val, row_num;
+    string tablename, col_name, col_op, and_or;
     string comm, comm1;
-
-    if (input_opt == 1)
-    {
-        cout << "Input message: ";
-        cin.ignore();
-        getline(cin, comm);
-        return comm;
-    }
-    else if (input_opt == 0)
-    {
-        cout << "Choose Query (1 to 6): ";
+    cout << "Choose Query (1 to 6) or '0' to quit: ";
+    cin >> input;
+    while(cin.fail()) {
+        cout << "That option is not available.\n";
+        cin.clear();
+        cin.ignore(256,'\n');
+        cout << "Choose Query (1 to 6) or '0' to quit: ";
         cin >> input;
-        *query_num = input;
-        switch (input)
-        {
+    }
+    *query_num = input;
+
+    switch (input){
+        case 0:
+        return "exit";
         case 1:
-            cout << "Table Name: ";
-            cin >> tablename;
+        cout << "Table Name: ";
+        cin >> tablename;
 
-            comm = "CREATE TABLE ";
-            comm.append(tablename);
-            comm.append(" (");
+        comm = "CREATE TABLE ";
+        comm.append(tablename);
+        comm.append(" (");
 
-            // construct query
-            while (true)
-            {
-                cout << "Column Name('end' to terminate): ";
-                cin >> col_name;
-                if (col_name.compare("end") == 0)
-                    break;
+        // construct query
+        while (true)
+        {
+            cout << "Column Name('end' to terminate): ";
+            cin >> col_name;
+            if (col_name.compare("end") == 0)
+                break;
 
-                comm.append(col_name);
-                comm.append(" ");
-            }
-            comm.append(")");
-
-            break;
+            comm.append(col_name);
+            comm.append(" ");
+        }
+        comm.append(")");
+        break;
         case 2:
             cout << "Table Name: ";
             cin >> tablename;
@@ -371,8 +414,16 @@ string create_query(int input_opt, vector<string> *val_to_encrypt, int *query_nu
                 cout << "Column Value: ";
                 cin >> col_val;
 
+                while(cin.fail()) {
+                    cout << "Please enter a number.\n";
+                    cin.clear();
+                    cin.ignore(256,'\n');
+                    cout << "Column Value: ";
+                    cin >> col_val;
+                }
+
                 // add value to list of values
-                (*val_to_encrypt).insert((*val_to_encrypt).end(), col_val);
+                (*val_to_encrypt).insert((*val_to_encrypt).end(), to_string(col_val));
                 comm.append(col_name);
                 comm.append(" ");
                 comm1.append(" % ");
@@ -387,9 +438,16 @@ string create_query(int input_opt, vector<string> *val_to_encrypt, int *query_nu
 
             cout << "Row Number: ";
             cin >> row_num;
-
+            while(cin.fail()) {
+                cout << "Please enter a number.\n";
+                cin.clear();
+                cin.ignore(256,'\n');
+                cout << "Row Number: ";
+                cin >> row_num;
+                }
+            
             comm = "DELETE ";
-            comm.append(row_num);
+            comm.append(to_string(row_num));
             comm.append(" FROM ");
             comm.append(tablename);
 
@@ -400,9 +458,15 @@ string create_query(int input_opt, vector<string> *val_to_encrypt, int *query_nu
 
             cout << "Row Number: ";
             cin >> row_num;
-
+            while(cin.fail()) {
+                cout << "Please enter a number.\n";
+                cin.clear();
+                cin.ignore(256,'\n');
+                cout << "Row Number: ";
+                cin >> row_num;
+                }
             comm = "SELECT ROW ";
-            comm.append(row_num);
+            comm.append(to_string(row_num));
             comm.append(" FROM ");
             comm.append(tablename);
 
@@ -427,32 +491,73 @@ string create_query(int input_opt, vector<string> *val_to_encrypt, int *query_nu
             comm.append(tablename);
             comm.append(" WHERE ");
 
+            // First comparasion
             cout << comm << endl;
-
-            while (true)
-            {
-                cout << "Column Name: ";
-                cin >> col_name;
+            cout << "Column Name: ";
+            cin >> col_name;
+            cout << "Operand(=, < or >): ";
+            cin >> col_op;
+            while(col_op.compare(">") != 0 && col_op.compare("<") != 0 && col_op.compare("=") != 0){
+                cout << "Please enter a valid operand.\n";
+                cin.clear();
+                cin.ignore(256,'\n');
                 cout << "Operand(=, < or >): ";
                 cin >> col_op;
+            }
+            cout << "Column Value: ";
+            cin >> col_val;
+            while(cin.fail()) {
+                cout << "Please enter a number.\n";
+                cin.clear();
+                cin.ignore(256,'\n');
                 cout << "Column Value: ";
                 cin >> col_val;
-
-                (*val_to_encrypt).insert((*val_to_encrypt).end(), col_val);
-                comm.append(col_name);
-                comm.append(" ");
-                comm.append(col_op);
-                comm.append(" ");
-                comm.append("% ");
-
-                cout << "Next Comparation ('end' to terminate): ";
-                cin >> and_or;
-                if(and_or.compare("end") != 0){
-                    comm.append(and_or);
-                    comm.append(" ");
-                } 
-                else break;
             }
+            (*val_to_encrypt).insert((*val_to_encrypt).end(), to_string(col_val));
+            comm.append(col_name);
+            comm.append(" ");
+            comm.append(col_op);
+            comm.append(" ");
+            comm.append("% ");
+
+            // Logic comparador
+            cout << "Next Comparation ('AND' or 'OR'): ";
+            cin >> and_or;
+            while(and_or != "AND" && and_or != "OR"){
+                cout << "Please write AND or OR): ";
+                cin >> and_or;
+            }
+            comm.append(and_or);
+            comm.append(" ");
+
+            // Second comparasion
+            cout << "Column Name: ";
+            cin >> col_name;
+            cout << "Operand(=, < or >): ";
+            cin >> col_op;
+            while(col_op.compare(">") != 0 && col_op.compare("<") != 0 && col_op.compare("=") != 0){
+                cout << "Please enter a valid operand.\n";
+                cin.clear();
+                cin.ignore(256,'\n');
+                cout << "Operand(=, < or >): ";
+                cin >> col_op;
+            }
+            cout << "Column Value: ";
+            cin >> col_val;
+            while(cin.fail()) {
+                cout << "Please enter a number.\n";
+                cin.clear();
+                cin.ignore(256,'\n');
+                cout << "Column Value: ";
+                cin >> col_val;
+            }
+            (*val_to_encrypt).insert((*val_to_encrypt).end(), to_string(col_val));
+            comm.append(col_name);
+            comm.append(" ");
+            comm.append(col_op);
+            comm.append(" ");
+            comm.append("% ");
+
             break;
         case 6:
             cout << "Table Name: ";
@@ -469,35 +574,77 @@ string create_query(int input_opt, vector<string> *val_to_encrypt, int *query_nu
 
             cout << comm << endl;
 
-            while (true)
-            {
-                cout << "Column Name: ";
-                cin >> col_name;
+            // First comparasion
+            cout << "Column Name: ";
+            cin >> col_name;
+            cout << "Operand(=, < or >): ";
+            cin >> col_op;
+            while(col_op.compare(">") != 0 && col_op.compare("<") != 0 && col_op.compare("=") != 0){
+                cout << "Please enter a valid operand.\n";
+                cin.clear();
+                cin.ignore(256,'\n');
                 cout << "Operand(=, < or >): ";
                 cin >> col_op;
+            }
+            cout << "Column Value: ";
+            cin >> col_val;
+            while(cin.fail()) {
+                cout << "Please enter a number.\n";
+                cin.clear();
+                cin.ignore(256,'\n');
                 cout << "Column Value: ";
                 cin >> col_val;
-
-                (*val_to_encrypt).insert((*val_to_encrypt).end(), col_val);
-                comm.append(col_name);
-                comm.append(" ");
-                comm.append(col_op);
-                comm.append(" ");
-                comm.append("% ");
-
-                cout << "Next Comparation ('end' to terminate): ";
-                cin >> and_or;
-                if(and_or.compare("end") != 0){
-                    comm.append(and_or);
-                    comm.append(" ");
-                } 
-                else break;
             }
-        }
-    }
-    else
-        return "erro";
+            (*val_to_encrypt).insert((*val_to_encrypt).end(), to_string(col_val));
+            comm.append(col_name);
+            comm.append(" ");
+            comm.append(col_op);
+            comm.append(" ");
+            comm.append("% ");
 
+            // Logic comparador
+            cout << "Next Comparation ('AND' or 'OR'): ";
+            cin >> and_or;
+            while(and_or != "AND" && and_or != "OR"){
+                cout << "Please write AND or OR): ";
+                cin >> and_or;
+            }
+            comm.append(and_or);
+            comm.append(" ");
+
+            // Second comparasion
+            cout << "Column Name: ";
+            cin >> col_name;
+            cout << "Operand(=, < or >): ";
+            cin >> col_op;
+            while(col_op.compare(">") != 0 && col_op.compare("<") != 0 && col_op.compare("=") != 0){
+                cout << "Please enter a valid operand.\n";
+                cin.clear();
+                cin.ignore(256,'\n');
+                cout << "Operand(=, < or >): ";
+                cin >> col_op;
+            }
+            cout << "Column Value: ";
+            cin >> col_val;
+            while(cin.fail()) {
+                cout << "Please enter a number.\n";
+                cin.clear();
+                cin.ignore(256,'\n');
+                cout << "Column Value: ";
+                cin >> col_val;
+            }
+            (*val_to_encrypt).insert((*val_to_encrypt).end(), to_string(col_val));
+            comm.append(col_name);
+            comm.append(" ");
+            comm.append(col_op);
+            comm.append(" ");
+            comm.append("% ");
+            break;
+
+        default:
+            cout << "That option is not available.\n";
+            return "erro";
+        }
     cout << "\nCommand: " << comm << endl;
     return comm;
 }
@@ -523,7 +670,6 @@ int main(int argc, char *argv[])
     int val_flag;
     string message, message_values_encoded, message_encoded;
     string reply, reply_decoded, reply_values_decoded;
-    int input_opt;
     int query_num;
     
     vector<string> val_to_encrypt {};
@@ -536,31 +682,58 @@ int main(int argc, char *argv[])
     {
         // prints the server's API possible commands
         print_commands();
-
-        cout << "Construct Query (0), Input by Hand (1): ";
-        cin >> input_opt;
-
         val_to_encrypt = {};
-        message = create_query(input_opt, &val_to_encrypt, &query_num);
-        while (message.compare("erro") == 0){message = create_query(input_opt, &val_to_encrypt, &query_num);}
+
+        message = "erro";
+        while (message.compare("erro") == 0){message = create_query(&val_to_encrypt, &query_num);}
+        if (message == "exit"){
+            run = 0;
+            break;
+        }
         
         // flag = 0 if there are no values to encrypt else flag = 1
         if(val_to_encrypt.size() == 0) val_flag = 0;
         else val_flag = 1;
 
         // only encodes values if there is values to encode
-        if(val_flag) encode_values(val_to_encrypt);
+        if(val_flag){
+            cout << "Encrypting query values..." << endl;
+            encode_values(val_to_encrypt);
+        } 
 
+        cout << "Encrypting, Signing and Sending query..." << endl;
         encode_message(message, val_flag);
-
-        while (run && (query_num == 4 || query_num == 5 || query_num == 6) ){
-            string check = exec("if    ls -1qA Answers/ | grep -q .; then  ! echo not empty; else  echo empty; fi");
-            if (check.compare("empty\n") != 0) break;
+        
+        if (query_num == 4 || query_num == 5 || query_num == 6){
+            cout << "Waiting for server answer..." << endl;
+            while (run){
+                string check = exec("if    ls -1qA Answers/ | grep -q .; then  ! echo not empty; else  echo empty; fi");
+                if (check.compare("empty\n") != 0) break;
+            }
+        }
+        
+        if(query_num == 4 || query_num == 5 || query_num == 6){
+            string filename = exec("cd Answers/\nls -1 | head -n 1");
+            if (filename.compare("fail.enc\n") == 0){
+				decode_message(1);
+			}
+            else{
+                cout << "Decrypting query answer..." << endl;
+                decode_message(0);    
+                cout << "Decrypting query values..." << endl;
+                decode_values();
+            }
+        } 
+        else{
+            sleep(5);
+            string filename = exec("cd Answers/\nls -1 | head -n 1");
+            if (filename.compare("fail.enc\n") == 0){
+                decode_message(1);
+            }
         }
 
-        decode_message(query_num);
-
-        if(query_num == 4 || query_num == 5 || query_num == 6) decode_values();
+        cout << "Deleting Session Key..." << endl;
+        system("rm session.key");
     }
     return EXIT_SUCCESS;
 }

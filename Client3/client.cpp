@@ -20,29 +20,29 @@ void encode_message(string message, int val_flag)
     system("openssl rand -base64 32 > session.key\n");
     
     // session key signed with client's private key
-    system("openssl dgst -sha256 -sign Files/Client1-priv.pem -out Files/Client1-sign.sha256 session.key");
+    system("openssl dgst -sha256 -sign Files/Client3-priv.pem -out Files/Client3-sign.sha256 session.key");
     // session key encrypted with server's public key
-    system("openssl rsautl -encrypt -pubin -inkey Files/Server-publ.pem -in session.key -out Files/Client1-session.key.enc\n");
+    system("openssl rsautl -encrypt -pubin -inkey Files/Server-publ.pem -in session.key -out Files/Client3-session.key.enc\n");
 
     // signature of session key encrypted with server's public key
-    //system("openssl rsautl -encrypt -pubin -inkey Files/Server-publ.pem -in Files/Client1-sign.sha256 -out Files/Client1-sign.sha256.enc\n");
+    //system("openssl rsautl -encrypt -pubin -inkey Files/Server-publ.pem -in Files/Client3-sign.sha256 -out Files/Client3-sign.sha256.enc\n");
     
     // encrypt message with session key
-    system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/Client1-sign.sha256 -out Files/Client1-sign.sha256.enc -pass file:./session.key\n");
+    system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/Client3-sign.sha256 -out Files/Client3-sign.sha256.enc -pass file:./session.key\n");
 
-    system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/message.txt -out Files/Client1-message.enc -pass file:./session.key\n");
-    if(val_flag) system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/values.txt -out Files/Client1-values.enc -pass file:./session.key\n");
+    system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/message.txt -out Files/Client3-message.enc -pass file:./session.key\n");
+    if(val_flag) system("openssl enc -aes-256-cbc -pbkdf2 -salt -in Files/values.txt -out Files/Client3-values.enc -pass file:./session.key\n");
 
     // remove unnecessary files
     system("rm Files/message.txt\n");
     if(val_flag) system("rm Files/values.txt\n");
 
     // moves encoded session-key, encoded message and certificate to server's folder
-    system("mv Files/Client1-message.enc ../Server/Messages\n");
-    if(val_flag) system("mv Files/Client1-values.enc ../Server/Messages\n");
-    system("mv Files/Client1-session.key.enc ../Server/Messages\n");
-    system("mv Files/Client1-sign.sha256.enc ../Server/Messages\n");
-    system("cp Files/Client1-cert.crt ../Server/Messages\n");
+    system("mv Files/Client3-message.enc ../Server/Messages\n");
+    if(val_flag) system("mv Files/Client3-values.enc ../Server/Messages\n");
+    system("mv Files/Client3-session.key.enc ../Server/Messages\n");
+    system("mv Files/Client3-sign.sha256.enc ../Server/Messages\n");
+    system("cp Files/Client3-cert.crt ../Server/Messages\n");
 }
 // function to verify files in client folder, certificates and keys
 bool verify_documents()
@@ -73,19 +73,19 @@ bool verify_documents()
     }
 
     // check if client certificate is valid
-    system("openssl verify -CAfile Files/root_ca.crt Files/Client1-cert.crt > Files/verified.txt");
+    system("openssl verify -CAfile Files/root_ca.crt Files/Client3-cert.crt > Files/verified.txt");
     // load verified.txt to confirm signature
     string sign_check = load_string("Files/verified.txt");
     system("rm Files/verified.txt\n");
 
-    if (sign_check.find("Files/Client1-cert.crt: OK") != 0)
+    if (sign_check.find("Files/Client3-cert.crt: OK") != 0)
     {
         cout << "Client certificate is not valid! Message will not be considered" << endl;
         return false;
     }
 
     // check if client certificate has expired
-    string exp_date = exec("openssl x509 -enddate -noout -in Files/Client1-cert.crt");    
+    string exp_date = exec("openssl x509 -enddate -noout -in Files/Client3-cert.crt");    
     tm current_time = get_time();
 
     string check_date = verify_date(exp_date, current_time);
@@ -112,8 +112,8 @@ bool verify_documents()
 
 
     // check if client's private key is coherent with clients certificate
-    string crt = exec("openssl x509 -noout -modulus -in Files/Client1-cert.crt| openssl md5");
-    string key = exec("openssl rsa -noout -modulus -in Files/Client1-priv.pem | openssl md5");
+    string crt = exec("openssl x509 -noout -modulus -in Files/Client3-cert.crt| openssl md5");
+    string key = exec("openssl rsa -noout -modulus -in Files/Client3-priv.pem | openssl md5");
 
     if (crt.compare(key))
     {

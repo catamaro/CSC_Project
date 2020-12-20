@@ -22,6 +22,13 @@ void install_db_key(string name){
 
         const char * mov_db_key = db_key.c_str();
         system(mov_db_key);
+
+        string db_crt("cd homomorphic_keys\n cp -t ../../");
+        db_crt.append(name);//Pasta do cliente
+        db_crt.append("/Files/ DB_relin.sha256");
+
+        const char * mov_db_crt = db_crt.c_str();
+        system(mov_db_crt);
     }
     else{
         string db_key("cd homomorphic_keys\n cp -t ../../");
@@ -30,6 +37,13 @@ void install_db_key(string name){
 
         const char * mov_db_key = db_key.c_str();
         system(mov_db_key);
+
+        string db_crt2("cd homomorphic_keys\n cp -t ../../");
+        db_crt2.append(name);//Pasta do cliente
+        db_crt2.append("/Files/ DB_private.sha256 DB_public.sha256");
+
+        const char * mov_db_crt2 = db_crt2.c_str();
+        system(mov_db_crt2);
     }
 }
 
@@ -65,6 +79,10 @@ void generate_db_key(){
  	private_key_file.close();
  	public_key_file.close();
  	relin_keys_file.close();
+
+    system("openssl dgst -sha256 -sign root_CA/root_ca.key -out homomorphic_keys/DB_private.sha256 homomorphic_keys/DB_private.key");
+    system("openssl dgst -sha256 -sign root_CA/root_ca.key -out homomorphic_keys/DB_public.sha256 homomorphic_keys/DB_public.key");
+    system("openssl dgst -sha256 -sign root_CA/root_ca.key -out homomorphic_keys/DB_relin.sha256 homomorphic_keys/DB_relin.key");
 }
 
 void install_CA_certificate(string name)
@@ -174,6 +192,8 @@ void install_certificate(string name){
         const char * mov_key = p_key.c_str();
         system(mov_key);
     }
+
+
 }
 
 int main()
@@ -185,25 +205,30 @@ int main()
 
     create_directories("Client1");
     create_directories("Client2");
+    create_directories("Client3");
     create_directories("Server");
 
     install_db_key("Client1");
     install_db_key("Client2");
+    install_db_key("Client3");
     install_db_key("Server");
 
     //Install root CA in all entities;
     install_CA_certificate("Client1");
     install_CA_certificate("Client2");
+    install_CA_certificate("Client3");
     install_CA_certificate("Server");
 
     //Generate client and serrver certificates
     generate_certificate("Client1");
     generate_certificate("Client2");
+    generate_certificate("Client3");
     generate_certificate("Server");
 
     //Install client and server certificates
     install_certificate("Client1");
     install_certificate("Client2");
+    install_certificate("Client3");
     install_certificate("Server");
 }
 
